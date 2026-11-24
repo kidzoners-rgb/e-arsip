@@ -274,14 +274,9 @@ function renderArsip() {
         <div id="chart" class="flex items-end gap-1.5 md:gap-2 h-28"></div>
       </div>
       <div class="card p-5 space-y-3">
-        <div><label class="label">Tahun</label>
-          <select id="fYear" class="input">${years.map((y) => `<option value="${y}" ${y === S.year ? 'selected' : ''}>Tahun ${y}</option>`).join('')}</select></div>
+        <div><label class="label">Tahun</label><div id="yearChips" class="flex flex-wrap gap-2"></div></div>
         <div><label class="label">Klasifikasi</label>
-          <select id="fKode" class="input"><option value="">Semua klasifikasi</option>${groupKode().map((g) => {
-            const opt = (k) => `<option value="${esc(k.id)}" ${k.id === S.kodeFilter ? 'selected' : ''}>${esc(k.id)} · ${esc(k.label)}</option>`;
-            if (!g.parent) return g.items.map(opt).join('');
-            return `<optgroup label="${esc(g.parent.id)} — ${esc(g.parent.label)}">${g.items.length ? g.items.map(opt).join('') : opt(g.parent)}</optgroup>`;
-          }).join('')}</select></div>
+          <div id="kfBtn" role="button" tabindex="0" onclick="openKodePicker()" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openKodePicker()}" class="input !py-2.5 flex items-center gap-3 cursor-pointer hover:border-violet-300 transition"></div></div>
       </div>
     </div>
     <div class="card mt-4 p-3">
@@ -292,10 +287,56 @@ function renderArsip() {
     </div>
     <div id="list" class="mt-4"></div>
     <div id="pager" class="mt-4"></div>`;
-  $('#fYear').onchange = (e) => { S.year = e.target.value; S.month = 0; S.page = 1; updateList(); };
-  $('#fKode').onchange = (e) => { S.kodeFilter = e.target.value; S.page = 1; updateList(); };
+  renderYearChips(); renderKodeFilterBtn();
   let t; $('#fSearch').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { S.search = e.target.value; S.page = 1; updateList(); }, 120); };
   updateList();
+}
+
+/* ---- Filter tahun (chip) & klasifikasi (panel interaktif) ---- */
+function renderYearChips() {
+  const box = $('#yearChips'); if (!box) return;
+  box.innerHTML = yearsList().map((y) => `<button type="button" onclick="setYear('${y}')" class="px-4 py-2 rounded-xl text-sm font-extrabold transition active:scale-95 ${y === S.year ? 'bg-gradient-to-r from-violet-600 to-fuchsia-500 text-white shadow-md shadow-violet-500/30' : 'bg-slate-100 dark:bg-slate-800 text-slate-500 hover:bg-violet-50 dark:hover:bg-slate-700 hover:text-violet-600'}">${y}</button>`).join('');
+}
+function setYear(y) { S.year = y; S.month = 0; S.page = 1; renderYearChips(); updateList(); }
+const kodeMatch = (jenis, f) => jenis === f || (jenis || '').startsWith(f + '.'); // memilih induk = semua sub-kodenya
+function renderKodeFilterBtn() {
+  const el = $('#kfBtn'); if (!el) return;
+  const k = S.kode.find((x) => x.id === S.kodeFilter);
+  el.innerHTML = k
+    ? `<span class="badge font-mono shrink-0">${esc(k.id)}</span><span class="flex-1 min-w-0 text-[13px] font-bold truncate">${esc(k.label)}</span>
+       <span role="button" title="Hapus filter" onclick="event.stopPropagation();pickKodeFilter('')" class="shrink-0 w-7 h-7 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 hover:bg-rose-100 hover:text-rose-500 flex items-center justify-center transition">${ic('x', 14)}</span>`
+    : `<span class="text-violet-500 shrink-0">${ic('folder-tree', 18)}</span><span class="flex-1 text-sm font-semibold text-slate-500">Semua klasifikasi</span><span class="shrink-0 text-slate-400">${ic('chevrons-up-down', 16)}</span>`;
+  icons();
+}
+function pickKodeFilter(id) { S.kodeFilter = id; S.page = 1; renderKodeFilterBtn(); updateList(); }
+function kodeCounts() { // jumlah surat per kode pada tahun terpilih
+  const c = {}; S.arsip.forEach((a) => { if (yearOf(a.tanggal) === S.year) c[a.jenis] = (c[a.jenis] || 0) + 1; });
+  return c;
+}
+function openKodePicker() {
+  if (!S.kode.length) return toast('Klasifikasi belum dimuat', 'err');
+  const cnt = kodeCounts(), total = Object.values(cnt).reduce((a, b) => a + b, 0);
+  showModal(`<div class="pop bg-white dark:bg-slate-900 w-full max-w-lg rounded-t-[2rem] md:rounded-[2rem] shadow-2xl h-[85vh] md:h-auto md:max-h-[85vh] flex flex-col overflow-hidden">
+    <div class="p-5 pb-3 flex items-center justify-between">
+      <div class="flex items-center gap-3"><div class="w-10 h-10 rounded-2xl bg-violet-100 dark:bg-violet-500/15 text-violet-600 flex items-center justify-center">${ic('folder-tree', 22)}</div>
+        <div><h2 class="text-lg font-extrabold leading-tight">Filter Klasifikasi</h2><p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Tahun ${S.year} · ${total} surat</p></div></div>
+      <button type="button" class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 22)}</button></div>
+    <div class="px-4 pb-3 relative"><span class="absolute left-8 top-1/2 -translate-y-1/2 -mt-1.5 text-slate-400">${ic('search', 16)}</span>
+      <input id="kfSearch" class="input !py-2.5 !pl-10" placeholder="Cari kode atau nama klasifikasi…" autocomplete="off"></div>
+    <div id="kfList" class="flex-1 min-h-0 overflow-y-auto px-4 pb-6"></div></div>`);
+  const list = $('#kfList'), search = $('#kfSearch');
+  const draw = () => {
+    const q = search.value.trim(), on = !S.kodeFilter;
+    const all = q ? '' : `<button type="button" data-id="" class="w-full text-left flex items-center gap-3 px-3.5 py-3 rounded-2xl mb-3 transition ${on ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' : 'bg-slate-100 dark:bg-slate-800 hover:bg-violet-50 dark:hover:bg-slate-700'}">
+      <span class="${on ? 'text-white' : 'text-violet-500'}">${ic('layers', 18)}</span><span class="flex-1 text-sm font-extrabold">Semua klasifikasi</span>
+      <span class="text-[11px] font-extrabold px-2 py-0.5 rounded-full ${on ? 'bg-white/20' : 'bg-white dark:bg-slate-900 text-slate-500'}">${total}</span></button>`;
+    list.innerHTML = all + kpRows(q, S.kodeFilter, cnt); icons();
+  };
+  draw();
+  const cur = list.querySelector('.bg-violet-600'); if (cur && S.kodeFilter) list.scrollTop = Math.max(0, cur.offsetTop - list.clientHeight / 2);
+  search.oninput = draw;
+  list.onclick = (e) => { const b = e.target.closest('[data-id]'); if (!b) return; closeModal(); pickKodeFilter(b.dataset.id); };
+  if (innerWidth >= 768) search.focus();
 }
 
 function filtered() {
@@ -303,7 +344,7 @@ function filtered() {
   return S.arsip
     .filter((a) => yearOf(a.tanggal) === S.year
       && (!S.month || monthOf(a.tanggal) === S.month)
-      && (!S.kodeFilter || a.jenis === S.kodeFilter)
+      && (!S.kodeFilter || kodeMatch(a.jenis, S.kodeFilter))
       && (!q || (a.keterangan || '').toLowerCase().includes(q) || (a.nomorSuratFull || '').toLowerCase().includes(q) || (a.jenis || '').includes(q)))
     .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || (parseInt(b.nomorUrut, 10) || 0) - (parseInt(a.nomorUrut, 10) || 0));
 }
@@ -419,7 +460,7 @@ function kpCurrent(id) {
     ${p ? `<span class="block text-[11px] font-semibold text-slate-400 mt-0.5 truncate">${ic('folder', 11, 'inline')} ${esc(p.id)} · ${esc(p.label)}</span>` : ''}</span>`;
 }
 
-function kpRows(q, sel) {
+function kpRows(q, sel, cnt) {
   q = q.toLowerCase().trim();
   const hit = (k) => !q || k.id.toLowerCase().includes(q) || k.label.toLowerCase().includes(q);
   let html = '', n = 0;
@@ -434,13 +475,13 @@ function kpRows(q, sel) {
         <span class="${on ? 'text-white' : 'text-violet-500'}">${ic('folder', 18)}</span>
         <span class="min-w-0 flex-1"><span class="block font-mono text-[11px] font-extrabold tracking-wider ${on ? 'text-violet-100' : 'text-violet-500'}">${esc(g.parent.id)}</span>
           <span class="block text-sm font-extrabold leading-tight">${esc(g.parent.label)}</span></span>
-        <span class="shrink-0 text-[10px] font-extrabold uppercase tracking-widest ${on ? 'text-violet-100' : 'text-violet-400'}">${g.items.length} sub</span></button>`;
+        <span class="shrink-0 text-[10px] font-extrabold uppercase tracking-widest ${on ? 'text-violet-100' : 'text-violet-400'}">${cnt ? [g.parent, ...g.items].reduce((n, k) => n + (cnt[k.id] || 0), 0) + ' surat' : g.items.length + ' sub'}</span></button>`;
     }
     html += `<div class="${g.parent ? 'ml-5 pl-3 border-l-2 border-violet-200 dark:border-violet-500/30' : ''} mt-1 space-y-0.5">` + items.map((k) => {
       const on = k.id === sel;
       return `<button type="button" data-id="${esc(k.id)}" class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl transition ${on ? 'bg-violet-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}">
         <span class="font-mono text-[11px] font-bold mt-0.5 shrink-0 ${on ? 'text-violet-100' : 'text-violet-500'}">${esc(k.id)}</span>
-        <span class="flex-1 text-[13px] font-semibold leading-snug">${esc(k.label)}</span>${on ? ic('check', 16) : ''}</button>`;
+        <span class="flex-1 text-[13px] font-semibold leading-snug">${esc(k.label)}</span>${cnt ? `<span class="shrink-0 text-[11px] font-extrabold px-2 py-0.5 rounded-full ${on ? 'bg-white/20' : (cnt[k.id] ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-600' : 'bg-slate-100 dark:bg-slate-800 text-slate-300')}">${cnt[k.id] || 0}</span>` : (on ? ic('check', 16) : '')}</button>`;
     }).join('') + '</div>';
   });
   return n ? html : `<p class="py-8 text-center text-xs font-bold text-slate-400">Tidak ada klasifikasi yang cocok</p>`;
@@ -474,7 +515,9 @@ function openForm(id) {
   const a = id && S.arsip.find((x) => x.id === id);
   if (a) { S.form = { id: a.id, tanggal: a.tanggal, jenis: a.jenis, nomorUrut: a.nomorUrut, keterangan: a.keterangan }; S.manualNo = true; }
   else {
-    const jenis = S.kodeFilter || (S.kode.find((k) => !k.isParent) || S.kode[0]).id;
+    const kf = S.kode.find((k) => k.id === S.kodeFilter);
+    const grp = kf && kf.isParent && groupKode().find((g) => g.parent && g.parent.id === kf.id);
+    const jenis = kf ? (kf.isParent ? ((grp && grp.items[0]) || kf).id : kf.id) : (S.kode.find((k) => !k.isParent) || S.kode[0]).id;
     S.form = { id: null, tanggal: today(), jenis, nomorUrut: '', keterangan: '' };
     S.form.nomorUrut = nextNo(jenis, S.form.tanggal); S.manualNo = false;
   }
