@@ -84,7 +84,7 @@ const S = {
   arsip: [], kode: [], loaded: false, syncing: false,
   view: 'arsip', year: '', month: 0, kodeFilter: '', search: '', page: 1,
   form: null, manualNo: false, importRows: [], dragIdx: null,
-  spt: null, guru: [], guruBusy: false, guruMsg: null, guruFresh: false,
+  spt: null, guru: [], guruQ: '', guruOnlySel: false, guruBusy: false, guruMsg: null, guruFresh: false,
 };
 
 /* ============================ UTIL =============================== */
@@ -770,14 +770,14 @@ const MONTHS_FULL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Ju
 const fmtLong = (t) => { const [y, m, d] = (t || '').split('-').map(Number); return y ? `${d} ${MONTHS_FULL[m - 1]} ${y}` : '...'; };
 
 const sptDefault = () => ({
-  step: 1, noSurat: '', tanggal: today(), peserta: [''], kegiatan: '',
+  step: 1, noSurat: '', tanggal: today(), peserta: [], kegiatan: '',
   dinas: false, pejabat: 'Kepala Dinas Pendidikan Kabupaten Deli Serdang', noDinas: '', tglDinas: '',
   hari: '', waktu: '08.00 s/d 15.00 WIB', tempat: '', ttd: true, stempel: true,
 });
 function loadSpt() {
   let s;
   try { s = { ...sptDefault(), ...JSON.parse(localStorage.getItem(LS.spt) || '{}') }; } catch { s = sptDefault(); }
-  if (!Array.isArray(s.peserta) || !s.peserta.length) s.peserta = [''];
+  s.peserta = Array.isArray(s.peserta) ? s.peserta.filter(Boolean) : [];
   return s;
 }
 function saveSpt() { try { localStorage.setItem(LS.spt, JSON.stringify(S.spt)); } catch {} }
@@ -858,20 +858,21 @@ function renderSptForm() {
         ${ic('lightbulb', 14, 'inline')} Nomor terisi otomatis dari tombol <b>Ambil Nomor</b> di daftar Arsip Surat.
         <button class="underline font-extrabold ml-1" onclick="setView('arsip')">Buka Arsip Surat</button></div></div>`;
   } else if (st === 2) {
-    const opts = (sel) => `<option value="">— Pilih guru —</option>` + S.guru.map((g) => `<option value="${esc(g.nama)}" ${g.nama === sel ? 'selected' : ''}>${esc(g.nama)}</option>`).join('');
-    const rows = t.peserta.map((nm, i) => {
-      const g = S.guru.find((x) => x.nama === nm);
-      return `<div class="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-slate-50/60 dark:bg-slate-800/40">
-        <div class="flex gap-2"><select class="input !py-2.5" onchange="sptPeserta(${i},this.value)">${opts(nm)}</select>
-          ${t.peserta.length > 1 ? `<button class="btn btn-ghost !px-2.5 !text-rose-500" onclick="sptRemovePeserta(${i})" title="Hapus peserta">${ic('trash-2', 16)}</button>` : ''}</div>
-        ${g ? `<p class="text-[11px] font-semibold text-slate-400 px-1">NIP ${esc(g.nip || '-')} · ${esc(g.jabatan || '-')}</p>` : ''}</div>`;
-    }).join('');
     body = `<div class="space-y-3">
       <div class="flex items-center justify-between gap-2">
         <p class="text-[11px] font-bold ${S.guruMsg && !S.guruMsg.ok ? 'text-rose-500' : 'text-slate-400'}">${S.guruBusy ? 'Memuat data guru…' : esc(S.guruMsg ? S.guruMsg.text : S.guru.length + ' guru tersimpan di perangkat ini')}</p>
         <button class="btn btn-soft !py-2 !px-3 text-xs shrink-0" onclick="loadGuru(false)" ${S.guruBusy ? 'disabled' : ''}>${ic('refresh-cw', 14, S.guruBusy ? 'animate-spin' : '')} Perbarui</button></div>
-      <div class="space-y-2.5">${rows}</div>
-      <button class="btn btn-soft w-full" onclick="sptAddPeserta()">${ic('plus', 16)} Tambah peserta</button></div>`;
+      <div class="relative">
+        <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">${ic('search', 16)}</span>
+        <input id="guruSearch" type="text" class="input !pl-10 !pr-10 !py-2.5" placeholder="Cari nama, NIP, atau jabatan…" value="${esc(S.guruQ)}" oninput="guruSearch(this.value)">
+        <button id="guruSearchClear" type="button" class="absolute right-2.5 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-500 items-center justify-center ${S.guruQ ? 'flex' : 'hidden'}" onclick="guruSearch('');$('#guruSearch').value='';$('#guruSearch').focus()" title="Hapus pencarian">${ic('x', 12)}</button></div>
+      <div class="flex items-center gap-2">
+        <button id="guruAllBtn" type="button" class="btn btn-soft !py-2 !px-3 text-xs" onclick="sptToggleAll()"></button>
+        <button id="guruOnlyBtn" type="button" class="btn btn-soft !py-2 !px-3 text-xs" onclick="guruToggleOnly()"></button>
+        <button id="guruClearBtn" type="button" class="btn btn-ghost !py-2 !px-3 text-xs !text-rose-500 ml-auto" onclick="sptClearAll()">${ic('x', 14)} Kosongkan</button></div>
+      <div class="rounded-2xl border border-slate-200 dark:border-slate-700 overflow-hidden">
+        <div id="guruCount" class="px-3.5 py-2.5 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-200 dark:border-slate-700"></div>
+        <div id="guruList" class="max-h-[340px] overflow-y-auto p-1.5 space-y-0.5"></div></div></div>`;
   } else {
     body = `<div class="space-y-4">
       <div><label class="label">Nama kegiatan</label><textarea rows="3" class="input resize-none" placeholder="mis. Bimtek Digitalisasi Pembelajaran…" oninput="sptSet('kegiatan',this.value)">${esc(t.kegiatan)}</textarea></div>
@@ -895,17 +896,80 @@ function renderSptForm() {
     <div class="flex gap-2 pt-5 mt-5 border-t border-slate-100 dark:border-slate-800">
       ${st > 1 ? `<button class="btn btn-soft" onclick="sptStep(${st - 1})">← Kembali</button>` : ''}
       ${st < 3 ? `<button class="btn btn-primary flex-1" onclick="sptStep(${st + 1})">Lanjut →</button>` : `<button class="btn btn-ok flex-1" onclick="cetakSpt()">${ic('printer', 18)} Cetak / PDF</button>`}</div>`;
+  if (st === 2) renderGuruList();
   icons();
 }
 
 /* ---- Aksi form ---- */
 function sptSet(k, v) { S.spt[k] = v; saveSpt(); updatePaper(); }
 function sptStep(n) { S.spt.step = n; saveSpt(); renderSptForm(); }
-function sptPeserta(i, v) { S.spt.peserta[i] = v; saveSpt(); renderSptForm(); updatePaper(); }
-function sptAddPeserta() { S.spt.peserta.push(''); saveSpt(); renderSptForm(); }
-function sptRemovePeserta(i) {
-  S.spt.peserta.splice(i, 1); if (!S.spt.peserta.length) S.spt.peserta = [''];
-  saveSpt(); renderSptForm(); updatePaper();
+/* ---- Pilih peserta (daftar centang) ---- */
+const guruInitials = (n) => n.replace(/,.*$/, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+const guruSelected = () => new Set(S.spt.peserta);
+function guruFiltered() {
+  const q = (S.guruQ || '').trim().toLowerCase(), sel = guruSelected();
+  return S.guru.map((g, i) => ({ g, i })).filter(({ g }) =>
+    (!q || [g.nama, g.nip, g.jabatan].join(' ').toLowerCase().includes(q)) && (!S.guruOnlySel || sel.has(g.nama)));
+}
+function guruCommit(set) { // urutan peserta mengikuti urutan di data guru
+  S.spt.peserta = S.guru.filter((g) => set.has(g.nama)).map((g) => g.nama);
+  saveSpt(); renderGuruList(); updatePaper();
+}
+function renderGuruList() {
+  const list = $('#guruList'); if (!list) return;
+  const sel = guruSelected(), items = guruFiltered(), total = S.guru.length, n = S.spt.peserta.length;
+  const keepScroll = list.scrollTop;
+  list.innerHTML = !total
+    ? `<div class="py-10 text-center text-xs font-bold text-slate-400">${ic('users', 28, 'mx-auto mb-2 opacity-50')}Data guru belum tersedia.<br>Tekan <b>Perbarui</b> untuk memuat.</div>`
+    : !items.length
+      ? `<div class="py-10 text-center text-xs font-bold text-slate-400">${ic('search-x', 28, 'mx-auto mb-2 opacity-50')}${S.guruOnlySel && !S.guruQ ? 'Belum ada guru yang dipilih.' : 'Tidak ada guru yang cocok.'}</div>`
+      : items.map(({ g, i }) => {
+        const on = sel.has(g.nama);
+        return `<label class="flex items-center gap-3 px-2.5 py-2 rounded-xl cursor-pointer select-none transition ${on ? 'bg-violet-50 dark:bg-violet-500/15 ring-1 ring-violet-200 dark:ring-violet-500/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/60'}">
+          <input type="checkbox" class="sr-only peer" ${on ? 'checked' : ''} onchange="sptToggleGuru(${i})">
+          <span class="w-5 h-5 shrink-0 rounded-md border-2 flex items-center justify-center transition ${on ? 'bg-violet-600 border-violet-600 text-white scale-100' : 'border-slate-300 dark:border-slate-600 text-transparent'} peer-focus-visible:ring-4 peer-focus-visible:ring-violet-500/20">${ic('check', 12)}</span>
+          <span class="w-8 h-8 shrink-0 rounded-full flex items-center justify-center text-[11px] font-extrabold ${on ? 'bg-violet-600 text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-500'}">${esc(guruInitials(g.nama)) || '?'}</span>
+          <span class="min-w-0 flex-1"><span class="block text-[13px] font-bold truncate">${esc(g.nama)}</span>
+            <span class="block text-[11px] font-semibold text-slate-400 truncate">${esc(g.jabatan || '-')}${g.nip && g.nip !== '-' ? ' · ' + esc(g.nip) : ''}</span></span></label>`;
+      }).join('');
+  list.scrollTop = keepScroll;
+
+  const pct = total ? Math.round((n / total) * 100) : 0;
+  $('#guruCount').innerHTML = `<div class="flex items-center justify-between text-xs font-extrabold mb-1.5">
+      <span class="${n ? 'text-violet-600' : 'text-slate-400'}">${n} dari ${total} guru dipilih</span>
+      <span class="text-slate-400">${(S.guruQ || S.guruOnlySel) ? items.length + ' ditampilkan' : ''}</span></div>
+    <div class="h-1.5 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden"><div class="h-full rounded-full bg-gradient-to-r from-violet-500 to-fuchsia-500 transition-all duration-300" style="width:${pct}%"></div></div>`;
+
+  const allOn = items.length > 0 && items.every(({ g }) => sel.has(g.nama));
+  const all = $('#guruAllBtn'), only = $('#guruOnlyBtn'), clr = $('#guruClearBtn');
+  all.innerHTML = `${ic(allOn ? 'square' : 'check-check', 14)} ${allOn ? 'Batal pilih' : 'Pilih semua'}${S.guruQ || S.guruOnlySel ? ' (hasil)' : ''}`;
+  all.disabled = !items.length;
+  only.innerHTML = `${ic('list-checks', 14)} ${S.guruOnlySel ? 'Tampilkan semua' : 'Hanya terpilih'}`;
+  only.classList.toggle('!bg-violet-100', S.guruOnlySel); only.classList.toggle('!text-violet-700', S.guruOnlySel);
+  clr.disabled = !n; clr.classList.toggle('opacity-40', !n);
+  icons();
+}
+function guruSearch(v) {
+  S.guruQ = v;
+  const c = $('#guruSearchClear'); if (c) { c.classList.toggle('hidden', !v); c.classList.toggle('flex', !!v); }
+  renderGuruList();
+}
+function guruToggleOnly() { S.guruOnlySel = !S.guruOnlySel; renderGuruList(); }
+function sptToggleGuru(i) {
+  const g = S.guru[i]; if (!g) return;
+  const sel = guruSelected(); sel.has(g.nama) ? sel.delete(g.nama) : sel.add(g.nama);
+  guruCommit(sel);
+}
+function sptToggleAll() { // bekerja pada guru yang sedang tampil (hasil pencarian), atau semua bila tanpa filter
+  const items = guruFiltered(), sel = guruSelected();
+  const allOn = items.length && items.every(({ g }) => sel.has(g.nama));
+  items.forEach(({ g }) => allOn ? sel.delete(g.nama) : sel.add(g.nama));
+  guruCommit(sel);
+}
+function sptClearAll() {
+  if (!S.spt.peserta.length) return;
+  if (S.spt.peserta.length > 3 && !confirm('Hapus semua pilihan peserta?')) return;
+  S.guruOnlySel = false; guruCommit(new Set());
 }
 function sptReset() {
   if (!confirm('Kosongkan form SPT?')) return;
@@ -934,7 +998,7 @@ addEventListener('resize', fitPaper);
 
 function paperHtml() {
   const t = S.spt, K = kepsek();
-  const rows = t.peserta.map((nm, i) => {
+  const rows = (t.peserta.length ? t.peserta : ['']).map((nm, i) => {
     const g = S.guru.find((x) => x.nama === nm);
     return `<tr><td style="text-align:center">${i + 1}.</td><td style="font-weight:700">${esc(g ? g.nama : nm) || '...'}</td><td style="text-align:center">${esc(g && g.nip) || '-'}</td><td>${esc(g && g.jabatan) || '-'}</td></tr>`;
   }).join('');
