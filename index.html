@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#7c3aed">
+<title>E-Arsip SDN 101731</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'ui-monospace', 'monospace'] } } } };
+</script>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@latest"></script>
+<style type="text/tailwindcss">
+  @layer components {
+    .card { @apply bg-white dark:bg-slate-900 border border-slate-200/70 dark:border-slate-800 rounded-3xl shadow-sm; }
+    .btn { @apply inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl text-sm font-bold transition active:scale-95 disabled:opacity-50 disabled:pointer-events-none; }
+    .btn-primary { @apply bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white shadow-lg shadow-violet-500/25 hover:brightness-110; }
+    .btn-ghost { @apply text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800; }
+    .btn-soft { @apply bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700; }
+    .btn-danger { @apply bg-rose-500 text-white hover:bg-rose-600; }
+    .btn-ok { @apply bg-emerald-500 text-white hover:bg-emerald-600; }
+    .input { @apply w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 text-sm font-semibold outline-none focus:border-violet-400 focus:ring-4 focus:ring-violet-500/10 transition; }
+    .label { @apply block text-[11px] font-extrabold uppercase tracking-widest text-slate-400 mb-1.5 ml-1; }
+    .badge { @apply inline-block text-[11px] font-extrabold px-2.5 py-1 rounded-xl bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-300 border border-violet-100 dark:border-violet-500/20; }
+  }
+</style>
+<style>
+  body { font-family: 'Plus Jakarta Sans', system-ui, sans-serif; }
+  @keyframes pop { from { opacity: 0; transform: translateY(14px) scale(.98); } to { opacity: 1; transform: none; } }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+  .pop { animation: pop .22s ease-out; }
+  .fade { animation: fade .2s ease-out; }
+  .skeleton { background: linear-gradient(90deg, rgba(148,163,184,.12) 25%, rgba(148,163,184,.25) 50%, rgba(148,163,184,.12) 75%); background-size: 200% 100%; animation: shimmer 1.2s infinite; }
+  @keyframes shimmer { to { background-position: -200% 0; } }
+  .bar { transition: height .4s cubic-bezier(.2,.8,.2,1), background .2s; }
+  .row-hover:hover .row-actions { opacity: 1; }
+  @media (max-width: 640px) { input, select, textarea { font-size: 16px !important; } }
+  .drag-over { outline: 2px dashed #8b5cf6; outline-offset: 2px; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.4); border-radius: 8px; }
+</style>
+</head>
+<body class="bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100 min-h-screen">
+
+<div id="app"></div>
+<div id="modal"></div>
+<div id="toasts" class="fixed top-4 right-4 left-4 sm:left-auto z-[300] flex flex-col gap-2 items-end pointer-events-none"></div>
+<input type="file" id="fileInput" accept=".csv,text/csv" class="hidden">
+
+<script>
+/* ========================== KONFIGURASI ========================== */
+// Opsional: isi URL Web App Apps Script di sini agar tidak perlu mengetik di tiap perangkat.
+const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzvUEjmrXllW8RVz0XuSgCR94CabQ4ccAqYQQMdUcRE6I2FwyDkHkRPY57fVFfz5lFn/exec';
+
+const LS = { url: 'earsip_url', pin: 'earsip_pin', cache: 'earsip_cache', theme: 'earsip_theme' };
+const PER_PAGE = 20;
+const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+
+/* ============================ STATE ============================== */
+const S = {
+  url: localStorage.getItem(LS.url) || DEFAULT_API_URL,
+  pin: localStorage.getItem(LS.pin) || '',
+  arsip: [], kode: [], loaded: false, syncing: false,
+  view: 'arsip', year: '', month: 0, kodeFilter: '', search: '', page: 1,
+  form: null, manualNo: false, importRows: [], dragIdx: null,
+};
+
+/* ============================ UTIL =============================== */
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const ic = (name, size = 18, cls = '') => `<i data-lucide="${name}" style="width:${size}px;height:${size}px" class="${cls}"></i>`;
+const icons = () => window.lucide && lucide.createIcons();
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+const yearOf = (t) => (t || '').slice(0, 4);
+const monthOf = (t) => parseInt((t || '').slice(5, 7), 10) || 0;
+const fmtDate = (t, long) => {
+  const [y, m, d] = (t || '').split('-').map(Number);
+  if (!y) return '-';
+  return `${String(d).padStart(2, '0')} ${MONTHS[m - 1]}${long ? ' ' + y : ''}`;
+};
+const kodeLabel = (id) => (S.kode.find((k) => k.id === id) || {}).label || '';
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+function toast(msg, type = 'ok') {
+  const colors = { ok: 'bg-emerald-500', err: 'bg-rose-500', info: 'bg-slate-800' };
+  const el = document.createElement('div');
+  el.className = `pop pointer-events-auto ${colors[type]} text-white text-sm font-bold px-4 py-3 rounded-2xl shadow-xl max-w-sm`;
+  el.textContent = msg;
+  $('#toasts').appendChild(el);
+  setTimeout(() => { el.style.transition = 'opacity .3s'; el.style.opacity = 0; setTimeout(() => el.remove(), 300); }, type === 'err' ? 5000 : 2600);
+}
+
+function applyTheme() {
+  const t = localStorage.getItem(LS.theme) || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+  document.documentElement.classList.toggle('dark', t === 'dark');
+}
+function toggleTheme() {
+  const dark = document.documentElement.classList.contains('dark');
+  localStorage.setItem(LS.theme, dark ? 'light' : 'dark');
+  applyTheme(); renderShell();
+}
+
+/* ============================== API ============================== */
+async function api(action, payload = {}) {
+  if (!S.url) throw new Error('URL belum diatur');
+  // text/plain menghindari preflight CORS pada Apps Script
+  const res = await fetch(S.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ pin: S.pin, action, ...payload }) });
+  let json;
+  try { json = await res.json(); } catch { throw new Error('Respons server tidak valid. Pastikan deploy Web App diset "Anyone".'); }
+  if (!json.ok) throw new Error(json.error || 'Terjadi kesalahan');
+  return json;
+}
+
+async function load(silent) {
+  S.syncing = true; renderStatus();
+  try {
+    const r = await api('list');
+    S.arsip = r.arsip; S.kode = r.kode; S.loaded = true;
+    try { localStorage.setItem(LS.cache, JSON.stringify({ arsip: r.arsip, kode: r.kode })); } catch {}
+    pickYear();
+    if (!silent) toast('Data tersinkron');
+  } catch (e) {
+    if (e.message === 'PIN salah') { S.pin = ''; localStorage.removeItem(LS.pin); toast('PIN salah', 'err'); boot(); return; }
+    toast(e.message, 'err');
+  } finally {
+    S.syncing = false;
+    renderShell();
+  }
+}
+
+function pickYear() {
+  const years = yearsList();
+  const cur = String(new Date().getFullYear());
+  if (!S.year || !years.includes(S.year)) S.year = years.includes(cur) ? cur : (years[0] || cur);
+}
+const yearsList = () => [...new Set([String(new Date().getFullYear()), ...S.arsip.map((a) => yearOf(a.tanggal)).filter(Boolean)])].sort((a, b) => b - a);
+
+/* =========================== PENOMORAN =========================== */
+function nextNo(jenis, tanggal) {
+  if (!tanggal) return '1';
+  const y = yearOf(tanggal);
+  const nums = S.arsip.filter((a) => a.jenis === jenis && yearOf(a.tanggal) === y).map((a) => parseInt(a.nomorUrut, 10) || 0);
+  return String((nums.length ? Math.max(...nums) : 0) + 1);
+}
+const previewNo = (f) => `${f.jenis}/${f.nomorUrut || '?'}/${ROMAN[monthOf(f.tanggal)] || '?'}/${yearOf(f.tanggal) || '?'}`;
+
+/* ============================ BOOT / LOGIN ======================= */
+function boot() {
+  applyTheme();
+  if (!S.url || !S.pin) return renderLogin();
+  try { const c = JSON.parse(localStorage.getItem(LS.cache) || 'null'); if (c) { S.arsip = c.arsip; S.kode = c.kode; S.loaded = true; pickYear(); } } catch {}
+  renderShell();
+  load(true);
+}
+
+function renderLogin() {
+  $('#app').innerHTML = `
+  <div class="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-violet-100 via-fuchsia-50 to-sky-100 dark:from-slate-950 dark:via-violet-950/40 dark:to-slate-950">
+    <div class="card pop w-full max-w-md p-8 md:p-10">
+      <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-xl shadow-violet-500/30 mb-6">${ic('database', 26)}</div>
+      <h1 class="text-2xl font-extrabold tracking-tight">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
+      <p class="text-sm text-slate-500 mt-1 mb-7">Hubungkan ke database Google Sheets Anda.</p>
+      <form id="loginForm" class="space-y-4">
+        <div><label class="label">URL Web App (Apps Script)</label>
+          <input id="lgUrl" class="input font-mono text-xs" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(S.url)}" required></div>
+        <div><label class="label">PIN</label>
+          <input id="lgPin" type="password" class="input" placeholder="PIN yang Anda set di Code.gs" required></div>
+        <button class="btn btn-primary w-full py-3.5" id="lgBtn">${ic('plug-zap', 18)} Hubungkan</button>
+      </form>
+      <p class="text-[11px] text-slate-400 mt-5 leading-relaxed">URL dan PIN disimpan di browser perangkat ini saja, tidak dikirim ke GitHub.</p>
+    </div>
+  </div>`;
+  icons();
+  $('#loginForm').onsubmit = async (e) => {
+    e.preventDefault();
+    S.url = $('#lgUrl').value.trim(); S.pin = $('#lgPin').value.trim();
+    const b = $('#lgBtn'); b.disabled = true; b.innerHTML = 'Menghubungkan…';
+    try {
+      const r = await api('list');
+      localStorage.setItem(LS.url, S.url); localStorage.setItem(LS.pin, S.pin);
+      S.arsip = r.arsip; S.kode = r.kode; S.loaded = true; pickYear();
+      try { localStorage.setItem(LS.cache, JSON.stringify({ arsip: r.arsip, kode: r.kode })); } catch {}
+      renderShell(); toast('Terhubung ✔');
+    } catch (err) {
+      toast(err.message, 'err'); b.disabled = false; b.innerHTML = `${ic('plug-zap', 18)} Hubungkan`; icons();
+    }
+  };
+}
+
+function disconnect() {
+  if (!confirm('Putuskan koneksi di perangkat ini? Data di Google Sheets tetap aman.')) return;
+  localStorage.removeItem(LS.url); localStorage.removeItem(LS.pin); localStorage.removeItem(LS.cache);
+  S.url = DEFAULT_API_URL; S.pin = ''; S.arsip = []; S.kode = []; S.loaded = false;
+  renderLogin();
+}
+
+/* ============================== SHELL ============================ */
+function renderShell() {
+  const dark = document.documentElement.classList.contains('dark');
+  $('#app').innerHTML = `
+  <header class="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800">
+    <div class="max-w-6xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-10 h-10 shrink-0 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-lg shadow-violet-500/30">${ic('database', 20)}</div>
+        <div class="min-w-0">
+          <h1 class="text-base font-extrabold leading-none truncate">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
+          <p id="status" class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1.5 flex items-center gap-1.5"></p>
+        </div>
+      </div>
+      <div class="flex items-center gap-1">
+        <button class="btn btn-ghost !px-3" title="Sinkronkan" onclick="load()">${ic('refresh-cw', 18)}</button>
+        <button class="btn btn-ghost !px-3" title="Import CSV" onclick="$('#fileInput').click()">${ic('upload', 18)}</button>
+        <button class="btn btn-ghost !px-3" title="Export CSV" onclick="openExport()">${ic('download', 18)}</button>
+        <button class="btn btn-ghost !px-3" title="Mode gelap" onclick="toggleTheme()">${ic(dark ? 'sun' : 'moon', 18)}</button>
+        <button class="btn btn-ghost !px-3" title="Putuskan koneksi" onclick="disconnect()">${ic('log-out', 18)}</button>
+      </div>
+    </div>
+    <div class="max-w-6xl mx-auto px-4 md:px-6 flex gap-1 pb-2">
+      ${[['arsip', 'file-text', 'Arsip Surat'], ['kode', 'folder-tree', 'Klasifikasi']].map(([v, i, l]) =>
+        `<button onclick="setView('${v}')" class="btn !py-2 ${S.view === v ? 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300' : 'btn-ghost'}">${ic(i, 16)} ${l}</button>`).join('')}
+    </div>
+  </header>
+  <main class="max-w-6xl mx-auto px-4 md:px-6 py-6 pb-32" id="content"></main>
+  <button onclick="openForm()" class="fixed bottom-6 right-5 md:bottom-8 md:right-8 z-50 h-14 md:h-16 pl-5 pr-6 rounded-3xl btn-primary flex items-center gap-2 font-extrabold text-sm hover:scale-105 active:scale-95 transition">${ic('plus', 22)} <span class="hidden sm:inline">Nomor Baru</span></button>`;
+  renderStatus();
+  if (S.view === 'arsip') renderArsip(); else renderKode();
+  icons();
+}
+
+function renderStatus() {
+  const el = $('#status'); if (!el) return;
+  el.innerHTML = S.syncing
+    ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> Menyinkronkan…`
+    : `<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Tersambung ke Sheets`;
+}
+function setView(v) { S.view = v; renderShell(); }
+
+/* ============================ VIEW: ARSIP ======================== */
+function renderArsip() {
+  const years = yearsList();
+  $('#content').innerHTML = `
+    <div id="stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4"></div>
+    <div class="grid lg:grid-cols-3 gap-4 mt-4">
+      <div class="card p-5 lg:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <p class="label !mb-0">Surat per bulan · <span id="chartYear"></span></p>
+          <button id="clearMonth" class="text-[11px] font-bold text-violet-500 hidden" onclick="S.month=0;S.page=1;updateList()">Reset bulan</button>
+        </div>
+        <div id="chart" class="flex items-end gap-1.5 md:gap-2 h-28"></div>
+      </div>
+      <div class="card p-5 space-y-3">
+        <div><label class="label">Tahun</label>
+          <select id="fYear" class="input">${years.map((y) => `<option value="${y}" ${y === S.year ? 'selected' : ''}>Tahun ${y}</option>`).join('')}</select></div>
+        <div><label class="label">Klasifikasi</label>
+          <select id="fKode" class="input"><option value="">Semua klasifikasi</option>${S.kode.filter((k) => !k.isParent).map((k) => `<option value="${esc(k.id)}" ${k.id === S.kodeFilter ? 'selected' : ''}>${esc(k.id)} · ${esc(k.label)}</option>`).join('')}</select></div>
+      </div>
+    </div>
+    <div class="card mt-4 p-3">
+      <div class="relative">
+        <span class="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400">${ic('search', 18)}</span>
+        <input id="fSearch" class="input !pl-11 !bg-transparent !border-transparent" placeholder="Cari nomor surat, perihal, atau kode…" value="${esc(S.search)}">
+      </div>
+    </div>
+    <div id="list" class="mt-4"></div>
+    <div id="pager" class="mt-4"></div>`;
+  $('#fYear').onchange = (e) => { S.year = e.target.value; S.month = 0; S.page = 1; updateList(); };
+  $('#fKode').onchange = (e) => { S.kodeFilter = e.target.value; S.page = 1; updateList(); };
+  let t; $('#fSearch').oninput = (e) => { clearTimeout(t); t = setTimeout(() => { S.search = e.target.value; S.page = 1; updateList(); }, 120); };
+  updateList();
+}
+
+function filtered() {
+  const q = S.search.toLowerCase().trim();
+  return S.arsip
+    .filter((a) => yearOf(a.tanggal) === S.year
+      && (!S.month || monthOf(a.tanggal) === S.month)
+      && (!S.kodeFilter || a.jenis === S.kodeFilter)
+      && (!q || (a.keterangan || '').toLowerCase().includes(q) || (a.nomorSuratFull || '').toLowerCase().includes(q) || (a.jenis || '').includes(q)))
+    .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || (parseInt(b.nomorUrut, 10) || 0) - (parseInt(a.nomorUrut, 10) || 0));
+}
+
+function updateList() {
+  // statistik
+  const inYear = S.arsip.filter((a) => yearOf(a.tanggal) === S.year);
+  const now = new Date(), curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const thisMonth = S.arsip.filter((a) => (a.tanggal || '').startsWith(curKey)).length;
+  const cnt = {}; inYear.forEach((a) => { cnt[a.jenis] = (cnt[a.jenis] || 0) + 1; });
+  const top = Object.entries(cnt).sort((a, b) => b[1] - a[1])[0];
+  const stat = (icon, label, val, sub, grad) => `<div class="card p-4 md:p-5 relative overflow-hidden">
+      <div class="absolute -right-4 -top-4 w-20 h-20 rounded-full ${grad} opacity-20 blur-xl"></div>
+      <div class="flex items-center gap-2 text-slate-400">${ic(icon, 15)}<span class="text-[10px] font-extrabold uppercase tracking-widest">${label}</span></div>
+      <p class="text-2xl md:text-3xl font-extrabold mt-2 tracking-tight">${val}</p><p class="text-[11px] font-semibold text-slate-400 mt-0.5 truncate">${sub}</p></div>`;
+  $('#stats').innerHTML = stat('archive', 'Total Arsip', S.arsip.length, 'semua tahun', 'bg-violet-500')
+    + stat('calendar-days', `Tahun ${S.year}`, inYear.length, 'surat tercatat', 'bg-fuchsia-500')
+    + stat('calendar-check', 'Bulan Ini', thisMonth, MONTHS[now.getMonth()] + ' ' + now.getFullYear(), 'bg-sky-500')
+    + stat('trophy', 'Kode Terbanyak', top ? top[1] : 0, top ? top[0] : '-', 'bg-amber-500');
+
+  // grafik bulanan
+  const per = Array(12).fill(0); inYear.forEach((a) => { const m = monthOf(a.tanggal); if (m) per[m - 1]++; });
+  const max = Math.max(1, ...per);
+  $('#chartYear').textContent = S.year;
+  $('#clearMonth').classList.toggle('hidden', !S.month);
+  $('#chart').innerHTML = per.map((v, i) => {
+    const active = S.month === i + 1;
+    return `<button onclick="S.month=${active ? 0 : i + 1};S.page=1;updateList()" class="group flex-1 h-full flex flex-col justify-end items-center gap-1" title="${v} surat">
+      <span class="text-[10px] font-bold ${v ? 'text-slate-500' : 'text-transparent'}">${v}</span>
+      <span class="bar w-full rounded-t-lg ${active ? 'bg-gradient-to-t from-violet-600 to-fuchsia-400' : 'bg-violet-200 dark:bg-violet-500/30 group-hover:bg-violet-400'}" style="height:${Math.max(4, (v / max) * 72)}px"></span>
+      <span class="text-[9px] font-bold ${active ? 'text-violet-600' : 'text-slate-400'}">${MONTHS[i]}</span></button>`;
+  }).join('');
+
+  // daftar
+  const rows = filtered();
+  const pages = Math.max(1, Math.ceil(rows.length / PER_PAGE));
+  if (S.page > pages) S.page = pages;
+  const items = rows.slice((S.page - 1) * PER_PAGE, S.page * PER_PAGE);
+
+  if (!S.loaded) {
+    $('#list').innerHTML = Array.from({ length: 5 }, () => `<div class="skeleton h-20 rounded-3xl mb-3"></div>`).join('');
+  } else if (!items.length) {
+    $('#list').innerHTML = `<div class="card py-20 text-center fade">${ic('inbox', 44, 'mx-auto text-slate-300 mb-4')}<p class="font-extrabold text-slate-400">Tidak ada arsip</p><p class="text-xs text-slate-400 mt-1">Ubah filter atau tekan “Nomor Baru”.</p></div>`;
+  } else {
+    $('#list').innerHTML = `<div class="card divide-y divide-slate-100 dark:divide-slate-800 overflow-hidden fade">${items.map(rowHtml).join('')}</div>
+      <p class="text-[11px] font-bold text-slate-400 mt-3 ml-2">${rows.length} surat ditemukan</p>`;
+  }
+
+  $('#pager').innerHTML = pages > 1 ? `<div class="flex items-center justify-center gap-2">
+      <button class="btn btn-soft !px-3" ${S.page === 1 ? 'disabled' : ''} onclick="S.page--;updateList();scrollTo({top:0,behavior:'smooth'})">${ic('chevron-left', 18)}</button>
+      <span class="text-xs font-extrabold text-slate-500 px-3">${S.page} / ${pages}</span>
+      <button class="btn btn-soft !px-3" ${S.page === pages ? 'disabled' : ''} onclick="S.page++;updateList();scrollTo({top:0,behavior:'smooth'})">${ic('chevron-right', 18)}</button></div>` : '';
+  icons();
+}
+
+function rowHtml(a) {
+  return `<div class="row-hover group px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center gap-2 md:gap-5 hover:bg-violet-50/40 dark:hover:bg-slate-800/40 transition">
+    <div class="md:w-[300px] shrink-0 flex items-center gap-2">
+      <span class="font-mono font-bold text-[13px] tracking-tight">${esc(a.nomorSuratFull)}</span>
+      <button onclick="copyNo('${esc(a.id)}',this)" class="p-1.5 rounded-lg text-slate-300 hover:text-violet-500 hover:bg-violet-50 dark:hover:bg-slate-800 transition" title="Salin nomor">${ic('copy', 14)}</button>
+    </div>
+    <p class="flex-1 text-sm text-slate-600 dark:text-slate-300 font-semibold leading-snug md:line-clamp-2">${esc(a.keterangan) || '<span class="text-slate-300">—</span>'}</p>
+    <div class="flex items-center gap-3 md:w-52 md:justify-end">
+      <span class="text-[11px] font-extrabold uppercase text-slate-400">${fmtDate(a.tanggal, true)}</span>
+      <span class="badge" title="${esc(kodeLabel(a.jenis))}">${esc(a.jenis)}</span>
+    </div>
+    <div class="row-actions flex gap-1 md:opacity-0 transition md:justify-end">
+      <button class="p-2 rounded-xl text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-slate-800" onclick="openForm('${esc(a.id)}')" title="Edit">${ic('pencil', 16)}</button>
+      <button class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800" onclick="askDelete('${esc(a.id)}')" title="Hapus">${ic('trash-2', 16)}</button>
+    </div></div>`;
+}
+
+function copyNo(id, btn) {
+  const a = S.arsip.find((x) => x.id === id); if (!a) return;
+  const done = () => { toast('Nomor disalin: ' + a.nomorSuratFull, 'info'); };
+  if (navigator.clipboard) navigator.clipboard.writeText(a.nomorSuratFull).then(done).catch(() => fallbackCopy(a.nomorSuratFull, done));
+  else fallbackCopy(a.nomorSuratFull, done);
+}
+function fallbackCopy(text, cb) {
+  const el = document.createElement('textarea'); el.value = text; document.body.appendChild(el); el.select();
+  document.execCommand('copy'); el.remove(); cb();
+}
+
+/* ============================ MODAL ============================== */
+function showModal(html, { sheet = true, onClose } = {}) {
+  $('#modal').innerHTML = `<div class="fixed inset-0 z-[100] bg-slate-900/50 backdrop-blur-sm fade flex ${sheet ? 'items-end md:items-center' : 'items-center'} justify-center p-0 ${sheet ? 'md:p-6' : 'p-5'}" onmousedown="if(event.target===this)closeModal()">${html}</div>`;
+  S._onClose = onClose; icons();
+  const f = $('#modal [autofocus]'); if (f) setTimeout(() => f.focus(), 50);
+}
+function closeModal() { $('#modal').innerHTML = ''; if (S._onClose) S._onClose(); S._onClose = null; }
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#modal').innerHTML) closeModal(); });
+
+/* ============================ FORM SURAT ========================= */
+function openForm(id) {
+  if (!S.kode.length) return toast('Klasifikasi belum dimuat', 'err');
+  const a = id && S.arsip.find((x) => x.id === id);
+  if (a) { S.form = { id: a.id, tanggal: a.tanggal, jenis: a.jenis, nomorUrut: a.nomorUrut, keterangan: a.keterangan }; S.manualNo = true; }
+  else {
+    const jenis = S.kodeFilter || (S.kode.find((k) => !k.isParent) || S.kode[0]).id;
+    S.form = { id: null, tanggal: today(), jenis, nomorUrut: '', keterangan: '' };
+    S.form.nomorUrut = nextNo(jenis, S.form.tanggal); S.manualNo = false;
+  }
+  const f = S.form;
+  showModal(`<form id="frm" class="pop bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-[2rem] md:rounded-[2rem] shadow-2xl max-h-[94vh] overflow-y-auto relative">
+    <div class="p-6 md:p-8 space-y-5">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl bg-violet-100 dark:bg-violet-500/15 text-violet-600 flex items-center justify-center">${ic(f.id ? 'pencil' : 'file-plus-2', 22)}</div>
+          <div><h2 class="text-lg font-extrabold">${f.id ? 'Edit Arsip' : 'Nomor Surat Baru'}</h2><p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Detail klasifikasi & surat</p></div>
+        </div>
+        <button type="button" class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 22)}</button>
+      </div>
+      <div><label class="label">Klasifikasi</label>
+        <select id="fmJenis" class="input">${S.kode.map((k) => `<option value="${esc(k.id)}" ${k.id === f.jenis ? 'selected' : ''}>${k.isParent ? '▸' : '·'} ${esc(k.id)} — ${esc(k.label)}</option>`).join('')}</select></div>
+      <div class="grid grid-cols-2 gap-4">
+        <div><label class="label">Tanggal</label><input id="fmTgl" type="date" class="input" value="${f.tanggal}" required></div>
+        <div><label class="label flex justify-between">No. Urut <button type="button" id="fmAuto" class="text-violet-500 normal-case tracking-normal font-bold ${S.manualNo ? '' : 'hidden'}">↻ otomatis</button></label>
+          <input id="fmNo" inputmode="numeric" class="input font-mono text-violet-600 dark:text-violet-300" value="${esc(f.nomorUrut)}" required></div>
+      </div>
+      <div><label class="label">Perihal Surat</label><textarea id="fmKet" rows="3" class="input resize-none" placeholder="Deskripsikan perihal surat…" autofocus>${esc(f.keterangan)}</textarea></div>
+      <div class="rounded-3xl bg-slate-900 text-white p-5 md:p-6 relative overflow-hidden">
+        <div class="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-violet-500/25 blur-2xl"></div>
+        <p class="text-[10px] font-extrabold tracking-[.3em] text-violet-300 uppercase mb-2">Pratinjau nomor</p>
+        <p id="fmPrev" class="font-mono text-lg md:text-2xl font-bold break-all"></p>
+        <p id="fmWarn" class="text-xs font-bold text-amber-300 mt-2 hidden">${ic('triangle-alert', 14, 'inline')} Nomor ini sudah dipakai</p>
+      </div>
+      <div class="flex flex-col-reverse md:flex-row gap-3 pt-1">
+        <button type="button" class="btn btn-soft md:flex-1 py-4" onclick="closeModal()">Batal</button>
+        <button id="fmSave" class="btn btn-primary md:flex-[2] py-4">${ic('check', 18)} Simpan Arsip</button>
+      </div>
+    </div></form>`);
+  const sync = () => {
+    f.jenis = $('#fmJenis').value; f.tanggal = $('#fmTgl').value; f.keterangan = $('#fmKet').value;
+    if (!S.manualNo) $('#fmNo').value = nextNo(f.jenis, f.tanggal);
+    f.nomorUrut = $('#fmNo').value;
+    $('#fmPrev').textContent = previewNo(f);
+    const dup = S.arsip.some((x) => x.nomorSuratFull === previewNo(f) && x.id !== f.id);
+    $('#fmWarn').classList.toggle('hidden', !dup); $('#fmAuto').classList.toggle('hidden', !S.manualNo);
+  };
+  ['fmJenis', 'fmTgl', 'fmKet'].forEach((i) => ($('#' + i).oninput = sync));
+  $('#fmNo').oninput = (e) => { e.target.value = e.target.value.replace(/\D/g, ''); S.manualNo = true; sync(); };
+  $('#fmAuto').onclick = () => { S.manualNo = false; sync(); };
+  sync();
+  $('#frm').onsubmit = saveForm;
+}
+
+async function saveForm(e) {
+  e.preventDefault();
+  const f = S.form; const btn = $('#fmSave');
+  if (!f.nomorUrut || !f.tanggal) return;
+  btn.disabled = true; btn.innerHTML = 'Menyimpan…';
+  try {
+    const r = await api('save', { item: { id: f.id, tanggal: f.tanggal, jenis: f.jenis, nomorUrut: f.nomorUrut, keterangan: f.keterangan.trim() } });
+    const i = S.arsip.findIndex((x) => x.id === r.record.id);
+    if (i >= 0) S.arsip[i] = r.record; else S.arsip.push(r.record);
+    S.year = yearOf(r.record.tanggal); S.month = 0; S.page = 1;
+    try { localStorage.setItem(LS.cache, JSON.stringify({ arsip: S.arsip, kode: S.kode })); } catch {}
+    closeModal(); renderShell();
+    toast(f.id ? 'Arsip diperbarui' : 'Tersimpan: ' + r.record.nomorSuratFull);
+  } catch (err) {
+    toast(err.message, 'err'); btn.disabled = false; btn.innerHTML = `${ic('check', 18)} Simpan Arsip`; icons();
+  }
+}
+
+/* ============================ HAPUS ============================== */
+function askDelete(id) {
+  const a = S.arsip.find((x) => x.id === id); if (!a) return;
+  showModal(`<div class="pop bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] shadow-2xl p-8 text-center">
+    <div class="w-16 h-16 mx-auto rounded-3xl bg-rose-50 dark:bg-rose-500/10 text-rose-500 flex items-center justify-center mb-5">${ic('triangle-alert', 30)}</div>
+    <h3 class="text-lg font-extrabold">Hapus arsip ini?</h3>
+    <p class="font-mono text-sm font-bold text-violet-500 mt-2 break-all">${esc(a.nomorSuratFull)}</p>
+    <p class="text-xs text-slate-400 mt-2">Baris akan dihapus permanen dari Google Sheets.</p>
+    <div class="flex flex-col gap-2 mt-6">
+      <button id="delOk" class="btn btn-danger py-3.5">Hapus Sekarang</button>
+      <button class="btn btn-soft py-3.5" onclick="closeModal()">Kembali</button></div></div>`, { sheet: false });
+  $('#delOk').onclick = async () => {
+    const b = $('#delOk'); b.disabled = true; b.textContent = 'Menghapus…';
+    try { await api('delete', { id }); S.arsip = S.arsip.filter((x) => x.id !== id); pickYear(); closeModal(); renderShell(); toast('Arsip dihapus'); }
+    catch (err) { toast(err.message, 'err'); closeModal(); }
+  };
+}
+
+/* ======================= EXPORT / IMPORT CSV ===================== */
+function csvCell(v) { return `"${String(v ?? '').replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`; }
+
+function openExport() {
+  const years = yearsList();
+  showModal(`<div class="pop bg-white dark:bg-slate-900 w-full max-w-sm rounded-[2rem] shadow-2xl p-7">
+    <div class="flex items-center justify-between mb-5"><h3 class="text-lg font-extrabold">Export CSV</h3><button class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 20)}</button></div>
+    <div class="space-y-2">
+      <button class="btn btn-soft w-full justify-between py-3.5" onclick="exportCSV()"><span class="flex items-center gap-2">${ic('database', 18)} Semua tahun</span><span class="text-xs">${S.arsip.length} surat</span></button>
+      ${years.map((y) => { const n = S.arsip.filter((a) => yearOf(a.tanggal) === y).length; return `<button class="btn btn-soft w-full justify-between py-3.5" onclick="exportCSV('${y}')"><span class="flex items-center gap-2">${ic('calendar', 18)} Tahun ${y}</span><span class="text-xs">${n} surat</span></button>`; }).join('')}
+    </div>
+    <p class="text-[11px] text-slate-400 mt-4">Format sama dengan aplikasi lama, sehingga bisa di-import kembali.</p></div>`, { sheet: false });
+}
+
+function exportCSV(year) {
+  const list = [...S.arsip].filter((a) => !year || yearOf(a.tanggal) === year)
+    .sort((a, b) => b.tanggal.localeCompare(a.tanggal) || (parseInt(b.nomorUrut, 10) || 0) - (parseInt(a.nomorUrut, 10) || 0));
+  const lines = ['No,Tanggal,Kode,Nomor Urut,Nomor Lengkap,Keterangan',
+    ...list.map((d, i) => `${i + 1},${d.tanggal},${d.jenis},${d.nomorUrut},${csvCell(d.nomorSuratFull)},${csvCell(d.keterangan)}`)];
+  const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = year ? `arsip_${year}.csv` : 'arsip_lengkap_seluruh_tahun.csv'; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  closeModal(); toast(`${list.length} surat diexport`);
+}
+
+// Parser CSV lengkap (mendukung tanda kutip, koma & baris baru di dalam sel, pemisah , atau ;)
+function parseCSV(text) {
+  text = text.replace(/^\uFEFF/, '');
+  const first = text.split(/\r?\n/)[0] || '';
+  const delim = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : ',';
+  const rows = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === delim) { row.push(cur); cur = ''; }
+    else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i++; row.push(cur); cur = ''; if (row.some((x) => x.trim())) rows.push(row); row = []; }
+    else cur += c;
+  }
+  row.push(cur); if (row.some((x) => x.trim())) rows.push(row);
+  return rows;
+}
+
+function normDate(s) {
+  s = (s || '').trim(); if (!s) return '';
+  let m;
+  if ((m = s.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/))) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+  if ((m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/))) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  return '';
+}
+
+$('#fileInput').onchange = (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const rows = parseCSV(ev.target.result);
+      if (rows.length < 2) return toast('File CSV kosong', 'err');
+      const head = rows[0].map((h) => h.trim().toLowerCase());
+      const col = (names, fb) => { const i = head.findIndex((h) => names.includes(h)); return i >= 0 ? i : fb; };
+      const ix = { tgl: col(['tanggal'], 1), kode: col(['kode', 'jenis'], 2), no: col(['nomor urut', 'nomorurut'], 3), full: col(['nomor lengkap', 'nomorsuratfull'], 4), ket: col(['keterangan', 'perihal'], 5) };
+      const existing = new Set(S.arsip.map((a) => a.nomorSuratFull));
+      const seen = new Set();
+      const items = rows.slice(1).map((r) => {
+        const full = (r[ix.full] || '').trim();
+        let no = (r[ix.no] || '').trim(); if (!no && full) no = (full.split('/')[1] || '').trim();
+        const it = { tanggal: normDate(r[ix.tgl]), jenis: (r[ix.kode] || '').trim(), nomorUrut: no, nomorSuratFull: full, keterangan: (r[ix.ket] || '').trim() };
+        it.valid = !!(it.tanggal && it.jenis && it.nomorSuratFull);
+        it.dup = existing.has(full) || seen.has(full); seen.add(full);
+        return it;
+      });
+      S.importRows = items; openImport();
+    } catch (err) { console.error(err); toast('Gagal membaca CSV', 'err'); }
+    e.target.value = '';
+  };
+  reader.readAsText(file);
+};
+
+function openImport() {
+  const rows = S.importRows;
+  const invalid = rows.filter((r) => !r.valid).length, dup = rows.filter((r) => r.valid && r.dup).length;
+  const fresh = rows.filter((r) => r.valid && !r.dup).length;
+  const shown = rows.slice(0, 80);
+  showModal(`<div class="pop bg-white dark:bg-slate-900 w-full max-w-4xl max-h-[92vh] rounded-t-[2rem] md:rounded-[2rem] shadow-2xl flex flex-col overflow-hidden">
+    <div class="p-6 md:p-8 flex items-start justify-between border-b border-slate-100 dark:border-slate-800">
+      <div><h2 class="text-xl font-extrabold">Pratinjau Import</h2>
+        <div class="flex flex-wrap gap-2 mt-3 text-xs font-extrabold">
+          <span class="px-3 py-1.5 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600">${fresh} baru</span>
+          <span class="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-500/10 text-amber-600">${dup} duplikat (dilewati)</span>
+          ${invalid ? `<span class="px-3 py-1.5 rounded-xl bg-rose-50 dark:bg-rose-500/10 text-rose-600">${invalid} tidak valid</span>` : ''}</div></div>
+      <button class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 22)}</button></div>
+    <div class="flex-1 overflow-auto"><table class="w-full text-left text-xs">
+      <thead class="sticky top-0 bg-slate-50 dark:bg-slate-800 text-[10px] uppercase tracking-widest text-slate-400"><tr>
+        <th class="px-4 py-3">Status</th><th class="px-4 py-3">Nomor Lengkap</th><th class="px-4 py-3 hidden md:table-cell">Tanggal</th><th class="px-4 py-3">Perihal</th></tr></thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-slate-800">${shown.map((r) => `<tr class="${!r.valid || r.dup ? 'opacity-50' : ''}">
+        <td class="px-4 py-2.5 font-extrabold ${!r.valid ? 'text-rose-500' : r.dup ? 'text-amber-500' : 'text-emerald-500'}">${!r.valid ? 'Invalid' : r.dup ? 'Duplikat' : 'Baru'}</td>
+        <td class="px-4 py-2.5 font-mono font-bold text-violet-600 dark:text-violet-300">${esc(r.nomorSuratFull)}</td>
+        <td class="px-4 py-2.5 hidden md:table-cell">${esc(r.tanggal)}</td>
+        <td class="px-4 py-2.5 max-w-[240px] truncate italic text-slate-500">${esc(r.keterangan) || '-'}</td></tr>`).join('')}
+        ${rows.length > shown.length ? `<tr><td colspan="4" class="px-4 py-3 text-center text-slate-400 font-bold">… dan ${rows.length - shown.length} baris lainnya</td></tr>` : ''}
+      </tbody></table></div>
+    <div class="p-5 md:p-6 border-t border-slate-100 dark:border-slate-800 flex flex-col-reverse md:flex-row md:justify-end gap-3">
+      <button class="btn btn-soft py-3.5" onclick="closeModal()">Batal</button>
+      <button id="impOk" class="btn btn-ok py-3.5 px-8" ${fresh ? '' : 'disabled'}>${ic('check-circle-2', 18)} Import ${fresh} Surat</button></div></div>`);
+  $('#impOk').onclick = confirmImport;
+}
+
+async function confirmImport() {
+  const items = S.importRows.filter((r) => r.valid && !r.dup).map(({ valid, dup, ...rest }) => rest);
+  const btn = $('#impOk'); btn.disabled = true;
+  const CHUNK = 250; let added = 0, skipped = 0;
+  try {
+    for (let i = 0; i < items.length; i += CHUNK) {
+      btn.textContent = `Mengimpor ${Math.min(i + CHUNK, items.length)} / ${items.length}…`;
+      const r = await api('import', { items: items.slice(i, i + CHUNK) });
+      added += r.added; skipped += r.skipped;
+    }
+    S.importRows = []; closeModal(); await load(true);
+    toast(`Import selesai: ${added} ditambahkan${skipped ? `, ${skipped} dilewati` : ''}`);
+  } catch (err) {
+    toast(err.message + ` (sempat masuk ${added} surat)`, 'err'); btn.disabled = false; await load(true);
+  }
+}
+
+/* ========================= VIEW: KLASIFIKASI ===================== */
+function renderKode() {
+  $('#content').innerHTML = `
+    <div class="max-w-2xl mx-auto">
+      <div class="flex items-end justify-between mb-5 gap-3">
+        <div><h2 class="text-2xl font-extrabold tracking-tight">Struktur Klasifikasi</h2>
+          <p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-1">Seret untuk mengurutkan · tersimpan otomatis</p></div>
+        <button class="btn btn-primary shrink-0" onclick="openKodeForm()">${ic('plus', 18)} Tambah</button>
+      </div>
+      <div class="card p-4 md:p-6 space-y-2" id="kodeList">${S.kode.map(kodeRow).join('')}</div>
+    </div>`;
+  document.querySelectorAll('#kodeList [data-i]').forEach((el) => {
+    const i = +el.dataset.i;
+    el.ondragstart = () => { S.dragIdx = i; el.style.opacity = .4; };
+    el.ondragend = () => { el.style.opacity = 1; document.querySelectorAll('.drag-over').forEach((x) => x.classList.remove('drag-over')); };
+    el.ondragover = (e) => { e.preventDefault(); el.classList.add('drag-over'); };
+    el.ondragleave = () => el.classList.remove('drag-over');
+    el.ondrop = async (e) => {
+      e.preventDefault(); if (S.dragIdx === null || S.dragIdx === i) return;
+      const l = [...S.kode]; const [m] = l.splice(S.dragIdx, 1); l.splice(i, 0, m); S.dragIdx = null;
+      await persistKode(l);
+    };
+  });
+  icons();
+}
+
+const kodeRow = (k, i) => `<div draggable="true" data-i="${i}" class="flex items-center gap-3 p-3.5 rounded-2xl cursor-grab active:cursor-grabbing transition ${k.isParent ? 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-sm' : 'ml-6 md:ml-10 bg-slate-50 dark:bg-slate-800/50 border-l-4 border-violet-200 dark:border-violet-500/30'}">
+  <span class="text-slate-300">${ic('grip-vertical', 18)}</span>
+  <div class="flex-1 min-w-0"><span class="text-[10px] font-extrabold tracking-widest text-violet-500 font-mono">${esc(k.id)}</span>
+    <p class="text-sm font-bold leading-tight mt-0.5">${esc(k.label)}</p></div>
+  <button class="p-2 rounded-xl text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-slate-700" onclick="openKodeForm(${i})">${ic('pencil', 15)}</button>
+  <button class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-700" onclick="deleteKode(${i})">${ic('trash-2', 15)}</button></div>`;
+
+async function persistKode(list) {
+  const prev = S.kode; S.kode = list; renderKode();
+  try { await api('saveKode', { list }); try { localStorage.setItem(LS.cache, JSON.stringify({ arsip: S.arsip, kode: S.kode })); } catch {} toast('Klasifikasi disimpan'); }
+  catch (err) { S.kode = prev; renderKode(); toast(err.message, 'err'); }
+}
+
+function openKodeForm(i) {
+  const k = i !== undefined ? S.kode[i] : { id: '', label: '', isParent: false };
+  showModal(`<form id="kfrm" class="pop bg-white dark:bg-slate-900 w-full max-w-md rounded-t-[2rem] md:rounded-[2rem] shadow-2xl p-7 space-y-4">
+    <div class="flex items-center justify-between"><h3 class="text-lg font-extrabold">${i !== undefined ? 'Edit' : 'Tambah'} Klasifikasi</h3><button type="button" class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 20)}</button></div>
+    <div><label class="label">Kode</label><input id="kId" class="input font-mono" value="${esc(k.id)}" ${i !== undefined ? 'readonly title="Kode tidak dapat diubah agar arsip lama tetap konsisten"' : ''} placeholder="mis. 400.3.5.7" required autofocus></div>
+    <div><label class="label">Nama klasifikasi</label><input id="kLabel" class="input" value="${esc(k.label)}" required></div>
+    <div><label class="label">Jenis</label><select id="kPar" class="input"><option value="0" ${!k.isParent ? 'selected' : ''}>Sub-klasifikasi</option><option value="1" ${k.isParent ? 'selected' : ''}>Induk</option></select></div>
+    <button class="btn btn-primary w-full py-3.5">Simpan</button></form>`);
+  $('#kfrm').onsubmit = async (e) => {
+    e.preventDefault();
+    const item = { id: $('#kId').value.trim(), label: $('#kLabel').value.trim(), isParent: $('#kPar').value === '1' };
+    const l = [...S.kode];
+    if (i !== undefined) l[i] = item;
+    else { if (l.some((x) => x.id === item.id)) return toast('Kode sudah ada', 'err'); l.push(item); }
+    closeModal(); await persistKode(l);
+  };
+}
+
+async function deleteKode(i) {
+  const k = S.kode[i]; const used = S.arsip.filter((a) => a.jenis === k.id).length;
+  if (!confirm(`Hapus klasifikasi ${k.id}?` + (used ? `\n\n${used} arsip memakai kode ini. Arsip tidak ikut terhapus, tetapi kode tidak akan muncul lagi di daftar pilihan.` : ''))) return;
+  await persistKode(S.kode.filter((_, x) => x !== i));
+}
+
+/* ============================== START ============================ */
+boot();
+</script>
+</body>
+</html>
