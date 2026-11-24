@@ -205,12 +205,10 @@ function renderShell() {
       <div class="flex items-center gap-3 min-w-0">
         <div class="w-10 h-10 shrink-0 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-lg shadow-violet-500/30">${ic('database', 20)}</div>
         <div class="min-w-0">
-          <h1 class="text-base font-extrabold leading-none truncate">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
-          <p id="status" class="text-[10px] font-bold uppercase tracking-widest text-slate-400 mt-1.5 flex items-center gap-1.5"></p>
-        </div>
+          <h1 class="text-base font-extrabold leading-none truncate">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>        </div>
       </div>
       <div class="flex items-center gap-1">
-        <button class="btn btn-ghost !px-3" title="Sinkronkan" onclick="load()">${ic('refresh-cw', 18)}</button>
+        <button id="btnSync" class="btn btn-ghost !px-3" title="Sinkronkan" onclick="load()">${ic('refresh-cw', 18)}</button>
         <button class="btn btn-ghost !px-3" title="Import CSV" onclick="$('#fileInput').click()">${ic('upload', 18)}</button>
         <button class="btn btn-ghost !px-3" title="Export CSV" onclick="openExport()">${ic('download', 18)}</button>
         <button class="btn btn-ghost !px-3" title="Mode gelap" onclick="toggleTheme()">${ic(dark ? 'sun' : 'moon', 18)}</button>
@@ -229,11 +227,10 @@ function renderShell() {
   icons();
 }
 
+// Indikator sinkronisasi: ikon refresh berputar saat memuat data (tanpa teks status)
 function renderStatus() {
-  const el = $('#status'); if (!el) return;
-  el.innerHTML = S.syncing
-    ? `<span class="inline-block w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span> Menyinkronkan…`
-    : `<span class="inline-block w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Tersambung ke Sheets`;
+  const ic = document.querySelector('#btnSync svg, #btnSync i');
+  if (ic) ic.classList.toggle('animate-spin', !!S.syncing);
 }
 function setView(v) { S.view = v; renderShell(); }
 
