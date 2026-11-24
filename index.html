@@ -7,7 +7,7 @@
 <link rel="icon" href="favicon.ico">
 <link rel="shortcut icon" href="favicon.ico">
 <link rel="apple-touch-icon" href="logo.png">
-<title>E-Arsip SDN 101731</title>
+<title>E-Arsip SD Negeri 101731</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = { darkMode: 'class', theme: { extend: { fontFamily: { sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'], mono: ['JetBrains Mono', 'ui-monospace', 'monospace'] } } } };
@@ -111,7 +111,7 @@ async function api(action, payload = {}) {
   const res = await fetch(S.url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ pin: S.pin, action, ...payload }) });
   let json;
   try { json = await res.json(); } catch { throw new Error('Respons server tidak valid. Pastikan deploy Web App diset "Anyone".'); }
-  if (!json.ok) throw new Error(json.error || 'Terjadi kesalahan');
+  if (!json.ok) throw new Error(json.error === 'PIN salah' ? 'Passkey salah' : (json.error || 'Terjadi kesalahan'));
   return json;
 }
 
@@ -124,7 +124,7 @@ async function load(silent) {
     pickYear();
     if (!silent) toast('Data tersinkron');
   } catch (e) {
-    if (e.message === 'PIN salah') { S.pin = ''; localStorage.removeItem(LS.pin); toast('PIN salah', 'err'); boot(); return; }
+    if (e.message === 'Passkey salah') { S.pin = ''; localStorage.removeItem(LS.pin); toast('Passkey salah', 'err'); boot(); return; }
     toast(e.message, 'err');
   } finally {
     S.syncing = false;
@@ -161,16 +161,16 @@ function renderLogin() {
   $('#app').innerHTML = `
   <div class="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-violet-100 via-fuchsia-50 to-sky-100 dark:from-slate-950 dark:via-violet-950/40 dark:to-slate-950">
     <div class="card pop w-full max-w-md p-8 md:p-10">
-      <img src="logo.png" alt="Logo SDN 101731" class="w-24 h-24 object-contain mx-auto mb-5 drop-shadow-md select-none" draggable="false">
-      <h1 class="text-2xl font-extrabold tracking-tight text-center">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
-      <p class="text-sm text-slate-500 mt-1 mb-7 text-center">Masukkan PIN admin untuk melanjutkan.</p>
+      <img src="logo.png" alt="Logo SD Negeri 101731" class="w-24 h-24 object-contain mx-auto mb-5 drop-shadow-md select-none" draggable="false">
+      <h1 class="text-2xl font-extrabold tracking-tight text-center">E-Arsip <span class="text-violet-500">SD Negeri 101731</span></h1>
+      <p class="text-sm text-slate-500 mt-1 mb-7 text-center">Masukkan Passkey admin untuk melanjutkan.</p>
       ${S.url ? '' : `<div class="mb-4 p-3 rounded-2xl bg-amber-50 text-amber-700 text-xs font-bold">URL Web App belum diisi di index.html (DEFAULT_API_URL).</div>`}
       <form id="loginForm" class="space-y-4">
-        <div><label class="label">PIN</label>
+        <div><label class="label">Passkey</label>
           <input id="lgPin" type="password" inputmode="text" autocomplete="current-password" class="input text-center tracking-[.4em] !py-4" placeholder="••••••" required></div>
         <button class="btn btn-primary w-full py-3.5" id="lgBtn">${ic('log-in', 18)} Masuk</button>
       </form>
-      <p class="text-[11px] text-slate-400 mt-5 leading-relaxed text-center">PIN disimpan di browser perangkat ini saja.</p>
+      <p class="text-[11px] text-slate-400 mt-5 leading-relaxed text-center">© 2025 | Domo</p>
     </div>
   </div>`;
   icons();
@@ -206,9 +206,9 @@ function renderShell() {
   <header class="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800">
     <div class="max-w-6xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
       <div class="flex items-center gap-3 min-w-0">
-        <img src="logo.png" alt="Logo SDN 101731" class="w-11 h-11 shrink-0 object-contain drop-shadow-sm select-none" draggable="false">
+        <img src="logo.png" alt="Logo SD Negeri 101731" class="w-11 h-11 shrink-0 object-contain drop-shadow-sm select-none" draggable="false">
         <div class="min-w-0">
-          <h1 class="text-base font-extrabold leading-none truncate">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>        </div>
+          <h1 class="text-base font-extrabold leading-none truncate">E-Arsip <span class="text-violet-500">SD Negeri 101731</span></h1>        </div>
       </div>
       <div class="flex items-center gap-1">
         <button id="btnSync" class="btn btn-ghost !px-3" title="Sinkronkan" onclick="load()">${ic('refresh-cw', 18)}</button>
