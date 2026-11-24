@@ -59,7 +59,7 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', '
 
 /* ============================ STATE ============================== */
 const S = {
-  url: localStorage.getItem(LS.url) || DEFAULT_API_URL,
+  url: DEFAULT_API_URL || localStorage.getItem(LS.url) || '',
   pin: localStorage.getItem(LS.pin) || '',
   arsip: [], kode: [], loaded: false, syncing: false,
   view: 'arsip', year: '', month: 0, kodeFilter: '', search: '', page: 1,
@@ -160,38 +160,39 @@ function renderLogin() {
     <div class="card pop w-full max-w-md p-8 md:p-10">
       <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-xl shadow-violet-500/30 mb-6">${ic('database', 26)}</div>
       <h1 class="text-2xl font-extrabold tracking-tight">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
-      <p class="text-sm text-slate-500 mt-1 mb-7">Hubungkan ke database Google Sheets Anda.</p>
+      <p class="text-sm text-slate-500 mt-1 mb-7">Masukkan PIN admin untuk melanjutkan.</p>
+      ${S.url ? '' : `<div class="mb-4 p-3 rounded-2xl bg-amber-50 text-amber-700 text-xs font-bold">URL Web App belum diisi di index.html (DEFAULT_API_URL).</div>`}
       <form id="loginForm" class="space-y-4">
-        <div><label class="label">URL Web App (Apps Script)</label>
-          <input id="lgUrl" class="input font-mono text-xs" placeholder="https://script.google.com/macros/s/.../exec" value="${esc(S.url)}" required></div>
         <div><label class="label">PIN</label>
-          <input id="lgPin" type="password" class="input" placeholder="PIN yang Anda set di Code.gs" required></div>
-        <button class="btn btn-primary w-full py-3.5" id="lgBtn">${ic('plug-zap', 18)} Hubungkan</button>
+          <input id="lgPin" type="password" inputmode="text" autocomplete="current-password" class="input text-center tracking-[.4em] !py-4" placeholder="••••••" required></div>
+        <button class="btn btn-primary w-full py-3.5" id="lgBtn">${ic('log-in', 18)} Masuk</button>
       </form>
-      <p class="text-[11px] text-slate-400 mt-5 leading-relaxed">URL dan PIN disimpan di browser perangkat ini saja, tidak dikirim ke GitHub.</p>
+      <p class="text-[11px] text-slate-400 mt-5 leading-relaxed text-center">PIN disimpan di browser perangkat ini saja.</p>
     </div>
   </div>`;
   icons();
   $('#loginForm').onsubmit = async (e) => {
     e.preventDefault();
-    S.url = $('#lgUrl').value.trim(); S.pin = $('#lgPin').value.trim();
-    const b = $('#lgBtn'); b.disabled = true; b.innerHTML = 'Menghubungkan…';
+    S.pin = $('#lgPin').value.trim();
+    const b = $('#lgBtn'); b.disabled = true; b.innerHTML = 'Memeriksa…';
     try {
       const r = await api('list');
-      localStorage.setItem(LS.url, S.url); localStorage.setItem(LS.pin, S.pin);
+      localStorage.setItem(LS.pin, S.pin);
       S.arsip = r.arsip; S.kode = r.kode; S.loaded = true; pickYear();
       try { localStorage.setItem(LS.cache, JSON.stringify({ arsip: r.arsip, kode: r.kode })); } catch {}
-      renderShell(); toast('Terhubung ✔');
+      renderShell(); toast('Berhasil masuk');
     } catch (err) {
-      toast(err.message, 'err'); b.disabled = false; b.innerHTML = `${ic('plug-zap', 18)} Hubungkan`; icons();
+      S.pin = ''; $('#lgPin').value = '';
+      toast(err.message, 'err'); b.disabled = false; b.innerHTML = `${ic('log-in', 18)} Masuk`; icons(); $('#lgPin').focus();
     }
   };
+  $('#lgPin').focus();
 }
 
 function disconnect() {
-  if (!confirm('Putuskan koneksi di perangkat ini? Data di Google Sheets tetap aman.')) return;
-  localStorage.removeItem(LS.url); localStorage.removeItem(LS.pin); localStorage.removeItem(LS.cache);
-  S.url = DEFAULT_API_URL; S.pin = ''; S.arsip = []; S.kode = []; S.loaded = false;
+  if (!confirm('Keluar dari aplikasi di perangkat ini? Data di Google Sheets tetap aman.')) return;
+  localStorage.removeItem(LS.pin); localStorage.removeItem(LS.cache);
+  S.pin = ''; S.arsip = []; S.kode = []; S.loaded = false;
   renderLogin();
 }
 
@@ -213,7 +214,7 @@ function renderShell() {
         <button class="btn btn-ghost !px-3" title="Import CSV" onclick="$('#fileInput').click()">${ic('upload', 18)}</button>
         <button class="btn btn-ghost !px-3" title="Export CSV" onclick="openExport()">${ic('download', 18)}</button>
         <button class="btn btn-ghost !px-3" title="Mode gelap" onclick="toggleTheme()">${ic(dark ? 'sun' : 'moon', 18)}</button>
-        <button class="btn btn-ghost !px-3" title="Putuskan koneksi" onclick="disconnect()">${ic('log-out', 18)}</button>
+        <button class="btn btn-ghost !px-3" title="Keluar" onclick="disconnect()">${ic('log-out', 18)}</button>
       </div>
     </div>
     <div class="max-w-6xl mx-auto px-4 md:px-6 flex gap-1 pb-2">
@@ -253,7 +254,11 @@ function renderArsip() {
         <div><label class="label">Tahun</label>
           <select id="fYear" class="input">${years.map((y) => `<option value="${y}" ${y === S.year ? 'selected' : ''}>Tahun ${y}</option>`).join('')}</select></div>
         <div><label class="label">Klasifikasi</label>
-          <select id="fKode" class="input"><option value="">Semua klasifikasi</option>${S.kode.filter((k) => !k.isParent).map((k) => `<option value="${esc(k.id)}" ${k.id === S.kodeFilter ? 'selected' : ''}>${esc(k.id)} · ${esc(k.label)}</option>`).join('')}</select></div>
+          <select id="fKode" class="input"><option value="">Semua klasifikasi</option>${groupKode().map((g) => {
+            const opt = (k) => `<option value="${esc(k.id)}" ${k.id === S.kodeFilter ? 'selected' : ''}>${esc(k.id)} · ${esc(k.label)}</option>`;
+            if (!g.parent) return g.items.map(opt).join('');
+            return `<optgroup label="${esc(g.parent.id)} — ${esc(g.parent.label)}">${g.items.length ? g.items.map(opt).join('') : opt(g.parent)}</optgroup>`;
+          }).join('')}</select></div>
       </div>
     </div>
     <div class="card mt-4 p-3">
@@ -368,6 +373,77 @@ function showModal(html, { sheet = true, onClose } = {}) {
 function closeModal() { $('#modal').innerHTML = ''; if (S._onClose) S._onClose(); S._onClose = null; }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('#modal').innerHTML) closeModal(); });
 
+/* ======================= PEMILIH KLASIFIKASI ===================== */
+// Mengelompokkan: setiap kode "Induk" membuka grup baru, sub-kode di bawahnya menjadi anggota grup.
+function groupKode() {
+  const groups = [];
+  S.kode.forEach((k) => {
+    if (k.isParent || !groups.length) groups.push({ parent: k.isParent ? k : null, items: [] });
+    if (!k.isParent) groups[groups.length - 1].items.push(k);
+  });
+  return groups;
+}
+const parentOf = (id) => { const g = groupKode().find((x) => x.items.some((k) => k.id === id)); return g && g.parent; };
+
+function kpCurrent(id) {
+  const k = S.kode.find((x) => x.id === id);
+  if (!k) return '<span class="text-slate-400">Pilih klasifikasi…</span>';
+  const p = k.isParent ? null : parentOf(id);
+  return `<span class="block min-w-0">
+    <span class="flex items-center gap-2"><span class="badge font-mono">${esc(k.id)}</span>${k.isParent ? '<span class="text-[10px] font-extrabold uppercase tracking-widest text-violet-400">Induk</span>' : ''}</span>
+    <span class="block text-[13px] font-bold mt-1 leading-snug whitespace-normal">${esc(k.label)}</span>
+    ${p ? `<span class="block text-[11px] font-semibold text-slate-400 mt-0.5 whitespace-normal">${ic('folder', 11, 'inline')} ${esc(p.id)} · ${esc(p.label)}</span>` : ''}</span>`;
+}
+
+function kpRows(q, sel) {
+  q = q.toLowerCase().trim();
+  const hit = (k) => !q || k.id.toLowerCase().includes(q) || k.label.toLowerCase().includes(q);
+  let html = '', n = 0;
+  groupKode().forEach((g) => {
+    const pHit = g.parent && hit(g.parent);
+    const items = pHit ? g.items : g.items.filter(hit);
+    if (!pHit && !items.length) return;
+    n++;
+    if (g.parent) {
+      const on = g.parent.id === sel;
+      html += `<button type="button" data-id="${esc(g.parent.id)}" class="w-full text-left mt-3 first:mt-0 flex items-center gap-3 px-3.5 py-3 rounded-2xl transition ${on ? 'bg-violet-600 text-white shadow-lg shadow-violet-500/30' : 'bg-violet-50 dark:bg-violet-500/10 hover:bg-violet-100 dark:hover:bg-violet-500/20'}">
+        <span class="${on ? 'text-white' : 'text-violet-500'}">${ic('folder', 18)}</span>
+        <span class="min-w-0 flex-1"><span class="block font-mono text-[11px] font-extrabold tracking-wider ${on ? 'text-violet-100' : 'text-violet-500'}">${esc(g.parent.id)}</span>
+          <span class="block text-sm font-extrabold leading-tight">${esc(g.parent.label)}</span></span>
+        <span class="shrink-0 text-[10px] font-extrabold uppercase tracking-widest ${on ? 'text-violet-100' : 'text-violet-400'}">${g.items.length} sub</span></button>`;
+    }
+    html += `<div class="${g.parent ? 'ml-5 pl-3 border-l-2 border-violet-200 dark:border-violet-500/30' : ''} mt-1 space-y-0.5">` + items.map((k) => {
+      const on = k.id === sel;
+      return `<button type="button" data-id="${esc(k.id)}" class="w-full text-left flex items-start gap-3 px-3 py-2.5 rounded-xl transition ${on ? 'bg-violet-600 text-white' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}">
+        <span class="font-mono text-[11px] font-bold mt-0.5 shrink-0 ${on ? 'text-violet-100' : 'text-violet-500'}">${esc(k.id)}</span>
+        <span class="flex-1 text-[13px] font-semibold leading-snug">${esc(k.label)}</span>${on ? ic('check', 16) : ''}</button>`;
+    }).join('') + '</div>';
+  });
+  return n ? html : `<p class="py-8 text-center text-xs font-bold text-slate-400">Tidak ada klasifikasi yang cocok</p>`;
+}
+
+function initKP(onPick) {
+  const btn = $('#kpBtn'), panel = $('#kpPanel'), list = $('#kpList'), search = $('#kpSearch'), hid = $('#fmJenis');
+  const draw = () => { list.innerHTML = kpRows(search.value, hid.value); icons(); };
+  const open = (v) => {
+    panel.classList.toggle('hidden', !v);
+    $('#kpChev').style.transform = v ? 'rotate(180deg)' : '';
+    if (!v) return;
+    search.value = ''; draw();
+    const s = list.querySelector('.bg-violet-600');
+    if (s) list.scrollTop = Math.max(0, s.offsetTop - list.clientHeight / 2 + s.clientHeight / 2);
+    if (innerWidth >= 768) search.focus();
+  };
+  btn.onclick = () => open(panel.classList.contains('hidden'));
+  search.oninput = draw;
+  list.onclick = (e) => {
+    const b = e.target.closest('[data-id]'); if (!b) return;
+    hid.value = b.dataset.id;
+    $('#kpCur').innerHTML = kpCurrent(hid.value);
+    open(false); icons(); onPick();
+  };
+}
+
 /* ============================ FORM SURAT ========================= */
 function openForm(id) {
   if (!S.kode.length) return toast('Klasifikasi belum dimuat', 'err');
@@ -389,7 +465,15 @@ function openForm(id) {
         <button type="button" class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 22)}</button>
       </div>
       <div><label class="label">Klasifikasi</label>
-        <select id="fmJenis" class="input">${S.kode.map((k) => `<option value="${esc(k.id)}" ${k.id === f.jenis ? 'selected' : ''}>${k.isParent ? '▸' : '·'} ${esc(k.id)} — ${esc(k.label)}</option>`).join('')}</select></div>
+        <input type="hidden" id="fmJenis" value="${esc(f.jenis)}">
+        <button type="button" id="kpBtn" class="input flex items-center justify-between gap-3 text-left cursor-pointer"><span id="kpCur" class="min-w-0 flex-1">${kpCurrent(f.jenis)}</span><span id="kpChev" class="shrink-0 text-slate-400 transition">${ic('chevron-down', 18)}</span></button>
+        <div id="kpPanel" class="hidden mt-2 rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
+          <div class="p-2.5 border-b border-slate-100 dark:border-slate-800 relative">
+            <span class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">${ic('search', 16)}</span>
+            <input id="kpSearch" class="input !py-2.5 !pl-10" placeholder="Cari kode atau nama klasifikasi…" autocomplete="off">
+          </div>
+          <div id="kpList" class="relative max-h-72 overflow-y-auto p-2.5"></div>
+        </div></div>
       <div class="grid grid-cols-2 gap-4">
         <div><label class="label">Tanggal</label><input id="fmTgl" type="date" class="input" value="${f.tanggal}" required></div>
         <div><label class="label flex justify-between">No. Urut <button type="button" id="fmAuto" class="text-violet-500 normal-case tracking-normal font-bold ${S.manualNo ? '' : 'hidden'}">↻ otomatis</button></label>
@@ -418,6 +502,7 @@ function openForm(id) {
   ['fmJenis', 'fmTgl', 'fmKet'].forEach((i) => ($('#' + i).oninput = sync));
   $('#fmNo').oninput = (e) => { e.target.value = e.target.value.replace(/\D/g, ''); S.manualNo = true; sync(); };
   $('#fmAuto').onclick = () => { S.manualNo = false; sync(); };
+  initKP(sync);
   sync();
   $('#frm').onsubmit = saveForm;
 }
