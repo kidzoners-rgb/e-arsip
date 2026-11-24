@@ -72,7 +72,7 @@
 // Opsional: isi URL Web App Apps Script di sini agar tidak perlu mengetik di tiap perangkat.
 const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbxPeiivFntPNPPKrDmo_vFCLOPcy-4tRdlJ5MAsvhUIvjJT29xKd-9uyZ2wDCUud82T/exec';
 
-const LS = { url: 'earsip_url', pin: 'earsip_pin', cache: 'earsip_cache', theme: 'earsip_theme', spt: 'earsip_spt', guru: 'earsip_guru' };
+const LS = { url: 'earsip_url', pin: 'earsip_pin', cache: 'earsip_cache', theme: 'earsip_theme', spt: 'earsip_spt', guru: 'earsip_guru', sptList: 'earsip_sptlist' };
 const PER_PAGE = 20;
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -84,7 +84,7 @@ const S = {
   arsip: [], kode: [], loaded: false, syncing: false,
   view: 'arsip', year: '', month: 0, kodeFilter: '', search: '', page: 1,
   form: null, manualNo: false, importRows: [], dragIdx: null,
-  spt: null, guru: [], guruQ: '', guruOnlySel: false, guruBusy: false, guruMsg: null, guruFresh: false,
+  spt: null, sptList: [], sptMode: 'edit', sptQ: '', sptBusy: false, sptListBusy: false, sptFresh: false, guru: [], guruQ: '', guruOnlySel: false, guruBusy: false, guruMsg: null, guruFresh: false,
 };
 
 /* ============================ UTIL =============================== */
@@ -171,6 +171,7 @@ function boot() {
   applyTheme();
   S.spt = loadSpt();
   try { S.guru = JSON.parse(localStorage.getItem(LS.guru) || '[]'); } catch { S.guru = []; }
+  try { S.sptList = JSON.parse(localStorage.getItem(LS.sptList) || '[]'); } catch { S.sptList = []; }
   if (!S.url || !S.pin) return renderLogin();
   try { const c = JSON.parse(localStorage.getItem(LS.cache) || 'null'); if (c) { S.arsip = c.arsip; S.kode = c.kode; S.loaded = true; pickYear(); } } catch {}
   renderShell();
@@ -780,12 +781,146 @@ function loadSpt() {
   s.peserta = Array.isArray(s.peserta) ? s.peserta.filter(Boolean) : [];
   return s;
 }
-function saveSpt() { try { localStorage.setItem(LS.spt, JSON.stringify(S.spt)); } catch {} }
+function saveSpt() { try { localStorage.setItem(LS.spt, JSON.stringify(S.spt)); } catch {} updateSptStatus(); }
+
+/* ---- Riwayat SPT (tersimpan di Google Sheets) ---- */
+const sptFields = (t) => ({ noSurat: t.noSurat || '', tanggal: t.tanggal || '', peserta: t.peserta || [], kegiatan: t.kegiatan || '',
+  dinas: !!t.dinas, pejabat: t.pejabat || '', noDinas: t.noDinas || '', tglDinas: t.tglDinas || '',
+  hari: t.hari || '', waktu: t.waktu || '', tempat: t.tempat || '', ttd: !!t.ttd, stempel: !!t.stempel });
+const sptSnap = (t) => JSON.stringify(sptFields(t));
+const sptHasContent = (t) => !!(t.noSurat || t.kegiatan || t.tempat || t.hari || (t.peserta && t.peserta.length));
+const sptDirty = () => (S.spt.id ? sptSnap(S.spt) !== S.spt.savedSnap : sptHasContent(S.spt));
+const fmtStamp = (iso) => { const d = new Date(iso); return isNaN(d) ? '-' : d.toLocaleString('id-ID', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }); };
+const backendOld = (e) => /Aksi tidak dikenal/.test(e.message)
+  ? 'Backend belum diperbarui. Di Apps Script: Terapkan → Kelola deployment → Edit → Versi baru → Terapkan.' : e.message;
+
+function sptConfirmDiscard() {
+  return !sptDirty() || confirm('SPT yang sedang dibuka belum disimpan dan akan hilang.\n\nLanjutkan tanpa menyimpan?');
+}
+function updateSptStatus() {
+  const el = $('#sptStatus'); if (!el || !S.spt) return;
+  const t = S.spt, dirty = sptDirty();
+  const tones = {
+    ok: ['bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300', 'bg-emerald-500'],
+    warn: ['bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300', 'bg-amber-500'],
+    idle: ['bg-slate-100 dark:bg-slate-800 text-slate-500', 'bg-slate-400'],
+  };
+  const [tone, txt] = t.id && !dirty ? ['ok', 'Tersimpan'] : t.id ? ['warn', 'Perubahan belum disimpan'] : sptHasContent(t) ? ['warn', 'Draf baru · belum disimpan'] : ['idle', 'Draf baru'];
+  const canSave = !S.sptBusy && (!t.id || dirty) && sptHasContent(t);
+  el.innerHTML = `<span class="inline-flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-extrabold ${tones[tone][0]}"><span class="w-2 h-2 rounded-full ${tones[tone][1]} ${tone === 'warn' ? 'animate-pulse' : ''}"></span>${txt}</span>
+    <button class="btn btn-primary !py-2 !px-3.5 text-xs ${canSave ? '' : 'opacity-50'}" ${canSave ? '' : 'disabled'} onclick="sptSimpan()">${ic(S.sptBusy ? 'loader-2' : 'save', 14, S.sptBusy ? 'animate-spin' : '')} ${S.sptBusy ? 'Menyimpan…' : 'Simpan'}</button>`;
+  icons();
+}
+async function sptSimpan() {
+  if (S.sptBusy || !sptHasContent(S.spt)) return;
+  const snap = sptSnap(S.spt), f = sptFields(S.spt);
+  S.sptBusy = true; updateSptStatus();
+  try {
+    const r = await api('sptSave', { item: { id: S.spt.id || '', noSurat: f.noSurat, tanggal: f.tanggal, kegiatan: f.kegiatan, jumlahPeserta: f.peserta.length, data: snap } });
+    const rec = { ...r.record, data: f };
+    S.spt.id = rec.id; S.spt.savedSnap = snap;
+    const i = S.sptList.findIndex((x) => x.id === rec.id);
+    if (i >= 0) S.sptList[i] = rec; else S.sptList.unshift(rec);
+    cacheSptList(); toast(i >= 0 ? 'Perubahan SPT disimpan' : 'SPT disimpan ke riwayat');
+  } catch (e) { toast(backendOld(e), 'err'); }
+  finally { S.sptBusy = false; saveSpt(); }
+}
+function cacheSptList() { try { localStorage.setItem(LS.sptList, JSON.stringify(S.sptList)); } catch {} }
+async function loadSptList(silent) {
+  S.sptListBusy = true; if (S.sptMode === 'riwayat') renderRiwayatList();
+  try {
+    const r = await api('sptList');
+    S.sptList = (r.spt || []).map((x) => { let d = {}; try { d = JSON.parse(x.data || '{}'); } catch {} return { ...x, data: d }; })
+      .sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+    cacheSptList();
+    if (!silent) toast('Riwayat diperbarui');
+  } catch (e) { if (!silent) toast(backendOld(e), 'err'); }
+  finally { S.sptListBusy = false; if (S.view === 'spt' && S.sptMode === 'riwayat') renderRiwayatList(); }
+}
+function sptNew() {
+  if (!sptConfirmDiscard()) return;
+  S.spt = sptDefault(); S.sptMode = 'edit'; saveSpt(); renderSpt(); scrollTo({ top: 0 });
+}
+function sptEditor() { S.sptMode = 'edit'; renderSpt(); }
+function sptRiwayat() { S.sptMode = 'riwayat'; renderSpt(); }
+function sptBuka(id) {
+  const it = S.sptList.find((x) => x.id === id); if (!it) return;
+  if (!sptConfirmDiscard()) return;
+  S.spt = { ...sptDefault(), ...it.data, id: it.id, step: 1 };
+  S.spt.peserta = (S.spt.peserta || []).filter(Boolean);
+  S.spt.savedSnap = sptSnap(S.spt);
+  S.sptMode = 'edit'; saveSpt(); renderSpt(); scrollTo({ top: 0 });
+  toast('SPT dibuka untuk diedit');
+}
+function sptDuplikat(id) {
+  const it = S.sptList.find((x) => x.id === id); if (!it) return;
+  if (!sptConfirmDiscard()) return;
+  S.spt = { ...sptDefault(), ...it.data, step: 1, noSurat: '', tanggal: today() };
+  S.spt.peserta = (S.spt.peserta || []).filter(Boolean);
+  S.sptMode = 'edit'; saveSpt(); renderSpt(); scrollTo({ top: 0 });
+  toast('SPT diduplikat. Isi nomor surat yang baru.', 'info');
+}
+async function sptHapus(id) {
+  const it = S.sptList.find((x) => x.id === id); if (!it) return;
+  if (!confirm(`Hapus SPT ${it.noSurat || '(tanpa nomor)'} dari riwayat?\n\nTindakan ini tidak bisa dibatalkan.`)) return;
+  try {
+    await api('sptDelete', { id });
+    S.sptList = S.sptList.filter((x) => x.id !== id); cacheSptList();
+    if (S.spt.id === id) { delete S.spt.id; delete S.spt.savedSnap; saveSpt(); }
+    renderRiwayatList(); toast('SPT dihapus dari riwayat');
+  } catch (e) { toast(backendOld(e), 'err'); }
+}
+function sptSearch(v) { S.sptQ = v; renderRiwayatList(); }
+
+function renderRiwayat() {
+  $('#content').innerHTML = `
+  <div class="max-w-3xl mx-auto">
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div><h2 class="text-lg font-extrabold">Riwayat SPT</h2><p id="sptListInfo" class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-0.5"></p></div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn btn-soft !py-2 !px-3 text-xs" onclick="loadSptList(false)" title="Muat ulang dari Google Sheets"><span id="sptListSpin">${ic('refresh-cw', 14)}</span> Perbarui</button>
+        <button class="btn btn-soft !py-2 !px-3 text-xs" onclick="sptEditor()">← Form</button>
+        <button class="btn btn-primary !py-2 !px-3.5 text-xs" onclick="sptNew()">${ic('plus', 14)} SPT Baru</button></div></div>
+    <div class="relative mb-4">
+      <span class="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">${ic('search', 16)}</span>
+      <input type="text" class="input !pl-10 !py-2.5" placeholder="Cari nomor surat, kegiatan, atau nama peserta…" value="${esc(S.sptQ)}" oninput="sptSearch(this.value)"></div>
+    <div id="sptListBody" class="space-y-3"></div></div>`;
+  renderRiwayatList();
+}
+function renderRiwayatList() {
+  const body = $('#sptListBody'); if (!body) return;
+  const q = S.sptQ.trim().toLowerCase();
+  const list = S.sptList.filter((x) => !q || [x.noSurat, x.kegiatan, x.tempat, ...((x.data && x.data.peserta) || [])].join(' ').toLowerCase().includes(q));
+  const info = $('#sptListInfo');
+  if (info) info.textContent = S.sptListBusy ? 'Memuat…' : `${list.length}${q ? ' dari ' + S.sptList.length : ''} SPT tersimpan`;
+  const spin = $('#sptListSpin'); if (spin) spin.innerHTML = ic('refresh-cw', 14, S.sptListBusy ? 'animate-spin' : '');
+  body.innerHTML = !list.length
+    ? `<div class="card py-14 text-center text-sm font-bold text-slate-400">${ic('file-signature', 36, 'mx-auto mb-3 opacity-40')}${S.sptListBusy ? 'Memuat riwayat…' : q ? 'Tidak ada SPT yang cocok.' : 'Belum ada SPT tersimpan.<br><span class="text-xs font-semibold">Buat SPT lalu tekan <b>Simpan</b>.</span>'}</div>`
+    : list.map((x) => {
+      const cur = S.spt && S.spt.id === x.id, id = esc(x.id);
+      return `<div class="card p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${cur ? 'ring-2 ring-violet-300 dark:ring-violet-500/50' : ''}">
+        <div class="hidden sm:flex w-11 h-11 shrink-0 rounded-2xl bg-violet-100 dark:bg-violet-500/15 text-violet-600 items-center justify-center">${ic('file-signature', 20)}</div>
+        <div class="min-w-0 flex-1">
+          <p class="text-sm font-extrabold truncate">${esc(x.noSurat) || '<span class="text-slate-400">(tanpa nomor)</span>'}${cur ? ' <span class="ml-1 text-[10px] font-extrabold text-violet-600 bg-violet-100 dark:bg-violet-500/20 px-2 py-0.5 rounded-full align-middle">Sedang dibuka</span>' : ''}</p>
+          <p class="text-xs font-semibold text-slate-500 mt-0.5 line-clamp-2">${esc(x.kegiatan) || '—'}</p>
+          <div class="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-[11px] font-bold text-slate-400">
+            <span class="inline-flex items-center gap-1">${ic('calendar', 12)} ${fmtDate(x.tanggal, true)}</span>
+            <span class="inline-flex items-center gap-1">${ic('users', 12)} ${x.jumlahPeserta || 0} peserta</span>
+            <span class="inline-flex items-center gap-1">${ic('clock', 12)} ${fmtStamp(x.updatedAt)}</span></div></div>
+        <div class="flex gap-1.5 shrink-0">
+          <button class="btn btn-primary !py-2 !px-3 text-xs flex-1 sm:flex-none" onclick="sptBuka('${id}')">${ic('pencil', 14)} Buka</button>
+          <button class="btn btn-soft !py-2 !px-2.5" onclick="sptDuplikat('${id}')" title="Duplikat">${ic('copy', 15)}</button>
+          <button class="btn btn-ghost !py-2 !px-2.5 !text-rose-500" onclick="sptHapus('${id}')" title="Hapus">${ic('trash-2', 15)}</button></div></div>`;
+    }).join('');
+  icons();
+}
 
 /* ---- Ambil nomor dari Arsip Surat ---- */
 function ambilNomor(id) {
   const a = S.arsip.find((x) => x.id === id); if (!a) return;
   if (!S.spt) S.spt = loadSpt();
+  if (S.spt.id) S.spt = sptDefault(); // jangan menimpa SPT yang sudah tersimpan
+  S.sptMode = 'edit';
   S.spt.noSurat = a.nomorSuratFull;
   S.spt.tanggal = a.tanggal;
   if (!(S.spt.kegiatan || '').trim() && a.keterangan) S.spt.kegiatan = a.keterangan; // hanya jika masih kosong
@@ -816,6 +951,8 @@ async function loadGuru(silent) {
 
 /* ---- Tampilan ---- */
 function renderSpt() {
+  if (!S.sptFresh) { S.sptFresh = true; loadSptList(true); } // segarkan riwayat sekali per sesi
+  if (S.sptMode === 'riwayat') return renderRiwayat();
   $('#content').innerHTML = `
   <div class="grid lg:grid-cols-[390px_minmax(0,1fr)] gap-6 items-start">
     <div id="sptForm" class="card p-5 md:p-6 no-print"></div>
@@ -891,11 +1028,14 @@ function renderSptForm() {
   f.innerHTML = `
     <div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
       <div><h2 class="text-base font-extrabold">Form SPT Guru</h2><p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">Pengaturan data penugasan</p></div>
-      <button class="btn btn-ghost !py-2 !px-3 text-xs !text-rose-500" onclick="sptReset()">${ic('rotate-ccw', 14)} Reset</button></div>
+      <div class="flex gap-1.5"><button class="btn btn-soft !py-2 !px-3 text-xs" onclick="sptRiwayat()" title="Lihat riwayat SPT">${ic('history', 14)} Riwayat</button>
+        <button class="btn btn-ghost !py-2 !px-2.5 text-xs" onclick="sptNew()" title="Mulai SPT baru">${ic('file-plus', 15)}</button></div></div>
+    <div id="sptStatus" class="flex items-center justify-between gap-2 mb-4"></div>
     ${stepper}${body}
     <div class="flex gap-2 pt-5 mt-5 border-t border-slate-100 dark:border-slate-800">
       ${st > 1 ? `<button class="btn btn-soft" onclick="sptStep(${st - 1})">← Kembali</button>` : ''}
-      ${st < 3 ? `<button class="btn btn-primary flex-1" onclick="sptStep(${st + 1})">Lanjut →</button>` : `<button class="btn btn-ok flex-1" onclick="cetakSpt()">${ic('printer', 18)} Cetak / PDF</button>`}</div>`;
+      ${st < 3 ? `<button class="btn btn-primary flex-1" onclick="sptStep(${st + 1})">Lanjut →</button>` : `<button class="btn btn-soft flex-1" onclick="sptSimpan()">${ic('save', 16)} Simpan</button><button class="btn btn-ok flex-1" onclick="cetakSpt()">${ic('printer', 18)} Cetak</button>`}</div>`;
+  updateSptStatus();
   if (st === 2) renderGuruList();
   icons();
 }
@@ -970,10 +1110,6 @@ function sptClearAll() {
   if (!S.spt.peserta.length) return;
   if (S.spt.peserta.length > 3 && !confirm('Hapus semua pilihan peserta?')) return;
   S.guruOnlySel = false; guruCommit(new Set());
-}
-function sptReset() {
-  if (!confirm('Kosongkan form SPT?')) return;
-  S.spt = sptDefault(); saveSpt(); renderSptForm(); updatePaper();
 }
 function cetakSpt() {
   const old = document.title;
