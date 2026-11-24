@@ -39,9 +39,9 @@
   .bar { transition: height .4s cubic-bezier(.2,.8,.2,1), background .2s; }
   .row-hover:hover .row-actions { opacity: 1; }
   @media (max-width: 640px) { input, select, textarea { font-size: 16px !important; } }
-  #printable-area table.tb { width: 100%; border-collapse: collapse; }
-  #printable-area table.tb th, #printable-area table.tb td { border: 1px solid #000; padding: 4px 10px; }
-  #printable-area table.kv td { padding: 2px 0; vertical-align: top; }
+  .paper-sheet table.tb { width: 100%; border-collapse: collapse; }
+  .paper-sheet table.tb th, .paper-sheet table.tb td { border: 1px solid #000; padding: 4px 10px; }
+  .paper-sheet table.kv td { padding: 2px 0; vertical-align: top; }
   @media print {
     @page { size: A4; margin: 1.4cm; }
     html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
@@ -54,6 +54,8 @@
     thead { display: table-header-group; }
     tr { page-break-inside: avoid; }
   }
+  .pvbtn { min-width: 38px; height: 38px; padding: 0 9px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: rgba(255,255,255,.14); color: #fff; font-weight: 800; transition: background .15s; }
+  .pvbtn:active { background: rgba(255,255,255,.3); }
   .drag-over { outline: 2px dashed #8b5cf6; outline-offset: 2px; }
   .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
   .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -954,16 +956,19 @@ function renderSpt() {
   if (!S.sptFresh) { S.sptFresh = true; loadSptList(true); } // segarkan riwayat sekali per sesi
   if (S.sptMode === 'riwayat') return renderRiwayat();
   $('#content').innerHTML = `
-  <div class="grid lg:grid-cols-[390px_minmax(0,1fr)] gap-6 items-start">
-    <div id="sptForm" class="card p-5 md:p-6 no-print"></div>
+  <div class="grid grid-cols-1 lg:grid-cols-[390px_minmax(0,1fr)] gap-6 items-start">
+    <div id="sptForm" class="card p-4 sm:p-5 md:p-6 min-w-0 no-print"></div>
     <div class="min-w-0">
       <div class="no-print flex items-center justify-between mb-3 gap-3">
         <p class="label !mb-0">Pratinjau surat</p>
-        <button class="btn btn-primary" onclick="cetakSpt()">${ic('printer', 18)} Cetak / PDF</button>
+        <div class="flex gap-2">
+          <button class="btn btn-soft" onclick="openPreview()">${ic('maximize-2', 16)} Perbesar</button>
+          <button class="btn btn-primary" onclick="cetakSpt()">${ic('printer', 18)} Cetak / PDF</button></div>
       </div>
-      <div id="paperWrap" class="overflow-hidden rounded-2xl shadow-xl ring-1 ring-slate-200 dark:ring-slate-700 bg-white relative">
+      <div id="paperWrap" onclick="openPreview()" title="Ketuk untuk memperbesar" class="overflow-hidden rounded-2xl shadow-xl ring-1 ring-slate-200 dark:ring-slate-700 bg-white relative cursor-zoom-in">
+        <span class="no-print absolute top-2.5 right-2.5 z-10 pointer-events-none inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-slate-900/70 text-white text-[11px] font-bold backdrop-blur">${ic('zoom-in', 13)} Ketuk untuk memperbesar</span>
         <div id="paperScaler" style="width:794px;transform-origin:top left">
-          <div id="printable-area" class="bg-white text-black" style="width:794px;min-height:1123px;padding:1.4cm;font-family:Arial,Helvetica,sans-serif;font-size:12pt;line-height:1.4"></div>
+          <div id="printable-area" class="paper-sheet bg-white text-black" style="width:794px;min-height:1123px;padding:1.4cm;font-family:Arial,Helvetica,sans-serif;font-size:12pt;line-height:1.4"></div>
         </div>
       </div>
     </div>
@@ -984,7 +989,7 @@ function renderSptForm() {
     `${i ? '<div class="h-0.5 w-4 bg-slate-200 dark:bg-slate-700"></div>' : ''}
      <button onclick="sptStep(${n})" class="flex items-center gap-2 px-1.5 py-1">
        <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold transition ${n === st ? 'bg-violet-600 text-white shadow-md shadow-violet-500/30' : n < st ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-600' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}">${n < st ? ic('check', 14) : n}</span>
-       <span class="text-xs font-bold ${n === st ? 'text-violet-600' : 'text-slate-400'}">${l}</span></button>`).join('')}</div>`;
+       <span class="text-xs font-bold ${n === st ? 'text-violet-600' : 'text-slate-400 hidden sm:inline'}">${l}</span></button>`).join('')}</div>`;
 
   let body = '';
   if (st === 1) {
@@ -1123,6 +1128,87 @@ function updatePaper() {
   const p = $('#printable-area'); if (!p) return;
   p.innerHTML = paperHtml(); fitPaper();
 }
+/* ---- Pratinjau layar penuh: perbesar / cubit / ketuk dua kali ---- */
+const PV = { open: false, z: 1, fit: 1, max: 3 };
+function openPreview() {
+  if (PV.open || !S.spt) return;
+  PV.open = true;
+  const el = document.createElement('div');
+  el.id = 'pvOverlay';
+  el.className = 'no-print fixed inset-0 z-[90] flex flex-col bg-slate-900/95 backdrop-blur-sm pop';
+  el.innerHTML = `
+    <div class="flex items-center gap-1.5 px-3 pb-2 text-white" style="padding-top:calc(env(safe-area-inset-top,0px) + 8px)">
+      <p class="text-sm font-extrabold mr-auto pl-1 truncate">Pratinjau Surat</p>
+      <button class="pvbtn" onclick="pvZoom(1/1.25)" title="Perkecil">${ic('zoom-out', 18)}</button>
+      <button id="pvPct" class="pvbtn text-xs tabular-nums" style="min-width:58px" onclick="pvToggle()" title="Pas layar / perbesar">100%</button>
+      <button class="pvbtn" onclick="pvZoom(1.25)" title="Perbesar">${ic('zoom-in', 18)}</button>
+      <button class="pvbtn" onclick="cetakSpt()" title="Cetak / PDF">${ic('printer', 18)}</button>
+      <button class="pvbtn" style="background:rgba(255,255,255,.28)" onclick="closePreview()" title="Tutup">${ic('x', 18)}</button></div>
+    <div id="pvScroll" class="flex-1 overflow-auto px-2 pt-1" style="touch-action:pan-x pan-y;overscroll-behavior:contain;padding-bottom:calc(env(safe-area-inset-bottom,0px) + 56px)">
+      <div id="pvSizer" style="margin:0 auto">
+        <div id="pvPaper" class="paper-sheet bg-white text-black shadow-2xl" style="width:794px;min-height:1123px;padding:1.4cm;font-family:Arial,Helvetica,sans-serif;font-size:12pt;line-height:1.4;transform-origin:top left">${paperHtml()}</div></div></div>
+    <div class="pointer-events-none absolute left-0 right-0 flex justify-center" style="bottom:calc(env(safe-area-inset-bottom,0px) + 14px)">
+      <span class="px-3.5 py-2 rounded-full bg-black/60 text-white/90 text-[11px] font-bold">Cubit atau ketuk dua kali untuk memperbesar</span></div>`;
+  document.body.appendChild(el);
+  document.body.style.overflow = 'hidden';
+  icons();
+
+  const sc = $('#pvScroll');
+  PV.z = 0; pvLayout(); PV.z = PV.fit; pvLayout();
+  const img = el.querySelector('img'); if (img) img.addEventListener('load', pvLayout);
+  addEventListener('resize', pvLayout); addEventListener('keydown', pvKey);
+
+  let pinch = null, lastTap = 0, lx = 0, ly = 0;
+  const dist = (e) => Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+  const mid = (e) => [(e.touches[0].clientX + e.touches[1].clientX) / 2, (e.touches[0].clientY + e.touches[1].clientY) / 2];
+  sc.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) { pinch = { d: dist(e), z: PV.z }; lastTap = 0; return; }
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0], now = Date.now();
+    if (now - lastTap < 300 && Math.hypot(t.clientX - lx, t.clientY - ly) < 30) { e.preventDefault(); lastTap = 0; pvToggle(t.clientX, t.clientY); }
+    else { lastTap = now; lx = t.clientX; ly = t.clientY; }
+  }, { passive: false });
+  sc.addEventListener('touchmove', (e) => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const [mx, my] = mid(e); pvSet(pinch.z * dist(e) / pinch.d, mx, my);
+  }, { passive: false });
+  sc.addEventListener('touchend', (e) => { if (e.touches.length < 2) pinch = null; });
+  sc.addEventListener('wheel', (e) => { if (!e.ctrlKey) return; e.preventDefault(); pvSet(PV.z * (e.deltaY < 0 ? 1.1 : 1 / 1.1), e.clientX, e.clientY); }, { passive: false });
+  sc.addEventListener('dblclick', (e) => pvToggle(e.clientX, e.clientY));
+}
+function pvKey(e) { if (e.key === 'Escape') closePreview(); }
+function closePreview() {
+  const el = $('#pvOverlay'); if (el) el.remove();
+  document.body.style.overflow = '';
+  removeEventListener('resize', pvLayout); removeEventListener('keydown', pvKey);
+  PV.open = false;
+}
+function pvLayout() {
+  const sc = $('#pvScroll'), paper = $('#pvPaper'), sz = $('#pvSizer'); if (!sc || !paper || !sz) return;
+  PV.fit = Math.max(0.1, (sc.clientWidth - 16) / 794);
+  PV.z = Math.min(PV.max, Math.max(PV.fit, PV.z || PV.fit));
+  paper.style.transform = `scale(${PV.z})`;
+  sz.style.width = 794 * PV.z + 'px';
+  sz.style.height = paper.offsetHeight * PV.z + 'px';
+  const pct = $('#pvPct'); if (pct) pct.textContent = Math.round(PV.z * 100) + '%';
+}
+function pvSet(z, cx, cy) { // ubah zoom dengan titik (cx, cy) di layar tetap berada di bawah jari
+  const sc = $('#pvScroll'), sz = $('#pvSizer'); if (!sc || !sz) return;
+  const r = sz.getBoundingClientRect(), old = PV.z;
+  const px = (cx - r.left) / old, py = (cy - r.top) / old;
+  PV.z = z; pvLayout();
+  const r2 = sz.getBoundingClientRect();
+  sc.scrollLeft += r2.left + px * PV.z - cx;
+  sc.scrollTop += r2.top + py * PV.z - cy;
+}
+function pvCenter() { const r = $('#pvScroll').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; }
+function pvZoom(f) { const [cx, cy] = pvCenter(); pvSet(PV.z * f, cx, cy); }
+function pvToggle(cx, cy) { // pas layar <-> diperbesar (ketuk dua kali / tombol persen)
+  if (cx === undefined || typeof cx !== 'number') [cx, cy] = pvCenter();
+  pvSet(PV.z > PV.fit * 1.05 ? PV.fit : Math.max(1, PV.fit * 2.5), cx, cy);
+}
+
 function fitPaper() { // kecilkan kertas A4 agar muat di layar sempit (tidak berpengaruh saat cetak)
   const w = $('#paperWrap'), sc = $('#paperScaler'); if (!w || !sc) return;
   const k = Math.min(1, w.clientWidth / 794);
@@ -1131,6 +1217,10 @@ function fitPaper() { // kecilkan kertas A4 agar muat di layar sempit (tidak ber
   w.style.height = Math.ceil(sc.offsetHeight * k) + 'px';
 }
 addEventListener('resize', fitPaper);
+if (window.ResizeObserver) { // pantau lebar wadah (rotasi layar, zoom, ganti mode) agar kertas selalu pas lebar layar
+  let _ro; const watch = () => { const w = $('#paperWrap'); if (w && _ro !== w) { _ro = w; new ResizeObserver(fitPaper).observe(w); } };
+  new MutationObserver(watch).observe(document.body, { childList: true, subtree: true }); watch();
+}
 
 function paperHtml() {
   const t = S.spt, K = kepsek();
