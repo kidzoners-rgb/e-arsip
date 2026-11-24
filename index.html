@@ -39,6 +39,21 @@
   .bar { transition: height .4s cubic-bezier(.2,.8,.2,1), background .2s; }
   .row-hover:hover .row-actions { opacity: 1; }
   @media (max-width: 640px) { input, select, textarea { font-size: 16px !important; } }
+  #printable-area table.tb { width: 100%; border-collapse: collapse; }
+  #printable-area table.tb th, #printable-area table.tb td { border: 1px solid #000; padding: 4px 10px; }
+  #printable-area table.kv td { padding: 2px 0; vertical-align: top; }
+  @media print {
+    @page { size: A4; margin: 1.4cm; }
+    html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; }
+    body * { visibility: hidden; }
+    #printable-area, #printable-area * { visibility: visible; }
+    #printable-area { position: absolute; left: 0; top: 0; width: 100% !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; box-shadow: none !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    #paperScaler { transform: none !important; width: auto !important; margin: 0 !important; }
+    #paperWrap { height: auto !important; overflow: visible !important; position: static !important; box-shadow: none !important; }
+    .no-print { display: none !important; }
+    thead { display: table-header-group; }
+    tr { page-break-inside: avoid; }
+  }
   .drag-over { outline: 2px dashed #8b5cf6; outline-offset: 2px; }
   ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.4); border-radius: 8px; }
 </style>
@@ -55,7 +70,7 @@
 // Opsional: isi URL Web App Apps Script di sini agar tidak perlu mengetik di tiap perangkat.
 const DEFAULT_API_URL = 'https://script.google.com/macros/s/AKfycbzvUEjmrXllW8RVz0XuSgCR94CabQ4ccAqYQQMdUcRE6I2FwyDkHkRPY57fVFfz5lFn/exec';
 
-const LS = { url: 'earsip_url', pin: 'earsip_pin', cache: 'earsip_cache', theme: 'earsip_theme' };
+const LS = { url: 'earsip_url', pin: 'earsip_pin', cache: 'earsip_cache', theme: 'earsip_theme', spt: 'earsip_spt', guru: 'earsip_guru' };
 const PER_PAGE = 20;
 const ROMAN = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
@@ -67,6 +82,7 @@ const S = {
   arsip: [], kode: [], loaded: false, syncing: false,
   view: 'arsip', year: '', month: 0, kodeFilter: '', search: '', page: 1,
   form: null, manualNo: false, importRows: [], dragIdx: null,
+  spt: null, guru: [], guruBusy: false, guruMsg: null, guruFresh: false,
 };
 
 /* ============================ UTIL =============================== */
@@ -151,6 +167,8 @@ const previewNo = (f) => `${f.jenis}/${f.nomorUrut || '?'}/${ROMAN[monthOf(f.tan
 /* ============================ BOOT / LOGIN ======================= */
 function boot() {
   applyTheme();
+  S.spt = loadSpt();
+  try { S.guru = JSON.parse(localStorage.getItem(LS.guru) || '[]'); } catch { S.guru = []; }
   if (!S.url || !S.pin) return renderLogin();
   try { const c = JSON.parse(localStorage.getItem(LS.cache) || 'null'); if (c) { S.arsip = c.arsip; S.kode = c.kode; S.loaded = true; pickYear(); } } catch {}
   renderShell();
@@ -218,15 +236,15 @@ function renderShell() {
         <button class="btn btn-ghost !px-3" title="Keluar" onclick="disconnect()">${ic('log-out', 18)}</button>
       </div>
     </div>
-    <div class="max-w-6xl mx-auto px-4 md:px-6 flex gap-1 pb-2">
-      ${[['arsip', 'file-text', 'Arsip Surat'], ['kode', 'folder-tree', 'Klasifikasi']].map(([v, i, l]) =>
-        `<button onclick="setView('${v}')" class="btn !py-2 ${S.view === v ? 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300' : 'btn-ghost'}">${ic(i, 16)} ${l}</button>`).join('')}
+    <div class="max-w-6xl mx-auto px-4 md:px-6 flex gap-1 pb-2 overflow-x-auto">
+      ${[['arsip', 'file-text', 'Arsip Surat'], ['spt', 'file-signature', 'Surat Tugas (SPT)'], ['kode', 'folder-tree', 'Klasifikasi']].map(([v, i, l]) =>
+        `<button onclick="setView('${v}')" class="btn !py-2 shrink-0 whitespace-nowrap ${S.view === v ? 'bg-violet-100 dark:bg-violet-500/15 text-violet-700 dark:text-violet-300' : 'btn-ghost'}">${ic(i, 16)} ${l}</button>`).join('')}
     </div>
   </header>
   <main class="max-w-6xl mx-auto px-4 md:px-6 py-6 pb-32" id="content"></main>
-  <button onclick="openForm()" class="fixed bottom-6 right-5 md:bottom-8 md:right-8 z-50 h-14 md:h-16 pl-5 pr-6 rounded-3xl btn-primary flex items-center gap-2 font-extrabold text-sm hover:scale-105 active:scale-95 transition">${ic('plus', 22)} <span class="hidden sm:inline">Nomor Baru</span></button>`;
+  <button onclick="openForm()" class="no-print ${S.view === 'spt' ? 'hidden' : ''} fixed bottom-6 right-5 md:bottom-8 md:right-8 z-50 h-14 md:h-16 pl-5 pr-6 rounded-3xl btn-primary flex items-center gap-2 font-extrabold text-sm hover:scale-105 active:scale-95 transition">${ic('plus', 22)} <span class="hidden sm:inline">Nomor Baru</span></button>`;
   renderStatus();
-  if (S.view === 'arsip') renderArsip(); else renderKode();
+  if (S.view === 'arsip') renderArsip(); else if (S.view === 'spt') renderSpt(); else renderKode();
   icons();
 }
 
@@ -347,10 +365,12 @@ function rowHtml(a) {
       <span class="text-[11px] font-extrabold uppercase text-slate-400">${fmtDate(a.tanggal, true)}</span>
       <span class="badge" title="${esc(kodeLabel(a.jenis))}">${esc(a.jenis)}</span>
     </div>
-    <div class="row-actions flex gap-1 md:opacity-0 transition md:justify-end">
-      <button class="p-2 rounded-xl text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-slate-800" onclick="openForm('${esc(a.id)}')" title="Edit">${ic('pencil', 16)}</button>
-      <button class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800" onclick="askDelete('${esc(a.id)}')" title="Hapus">${ic('trash-2', 16)}</button>
-    </div></div>`;
+    <div class="flex items-center gap-1 md:justify-end">
+      <button class="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[11px] font-extrabold whitespace-nowrap bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-500/20 transition active:scale-95" onclick="ambilNomor('${esc(a.id)}')" title="Pakai nomor ini di Surat Tugas (SPT)">${ic('file-input', 15)} Ambil Nomor</button>
+      <div class="row-actions flex gap-1 md:opacity-0 transition">
+        <button class="p-2 rounded-xl text-slate-400 hover:text-violet-600 hover:bg-violet-50 dark:hover:bg-slate-800" onclick="openForm('${esc(a.id)}')" title="Edit">${ic('pencil', 16)}</button>
+        <button class="p-2 rounded-xl text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-slate-800" onclick="askDelete('${esc(a.id)}')" title="Hapus">${ic('trash-2', 16)}</button>
+      </div></div></div>`;
 }
 
 function copyNo(id, btn) {
@@ -729,6 +749,211 @@ async function deleteKode(i) {
   const k = S.kode[i]; const used = S.arsip.filter((a) => a.jenis === k.id).length;
   if (!confirm(`Hapus klasifikasi ${k.id}?` + (used ? `\n\n${used} arsip memakai kode ini. Arsip tidak ikut terhapus, tetapi kode tidak akan muncul lagi di daftar pilihan.` : ''))) return;
   await persistKode(S.kode.filter((_, x) => x !== i));
+}
+
+/* ======================= SURAT TUGAS (SPT) ======================= */
+// Data pejabat penandatangan (Gol/Ruang tidak ada di sheet guru, jadi diatur di sini)
+const KEPSEK = { nama: 'Sarifuddin, S.Pd', nip: '197102101994121002', gol: 'Pembina Tk I, IVb', unit: 'UPT SPF SD Negeri 101731' };
+const MONTHS_FULL = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+const fmtLong = (t) => { const [y, m, d] = (t || '').split('-').map(Number); return y ? `${d} ${MONTHS_FULL[m - 1]} ${y}` : '...'; };
+
+const sptDefault = () => ({
+  step: 1, noSurat: '', tanggal: today(), peserta: [''], kegiatan: '',
+  dinas: false, pejabat: 'Kepala Dinas Pendidikan Kabupaten Deli Serdang', noDinas: '', tglDinas: '',
+  hari: '', waktu: '08.00 s/d 15.00 WIB', tempat: '', ttd: true, stempel: true,
+});
+function loadSpt() {
+  let s;
+  try { s = { ...sptDefault(), ...JSON.parse(localStorage.getItem(LS.spt) || '{}') }; } catch { s = sptDefault(); }
+  if (!Array.isArray(s.peserta) || !s.peserta.length) s.peserta = [''];
+  return s;
+}
+function saveSpt() { try { localStorage.setItem(LS.spt, JSON.stringify(S.spt)); } catch {} }
+
+/* ---- Ambil nomor dari Arsip Surat ---- */
+function ambilNomor(id) {
+  const a = S.arsip.find((x) => x.id === id); if (!a) return;
+  if (!S.spt) S.spt = loadSpt();
+  S.spt.noSurat = a.nomorSuratFull;
+  S.spt.tanggal = a.tanggal;
+  if (!(S.spt.kegiatan || '').trim() && a.keterangan) S.spt.kegiatan = a.keterangan; // hanya jika masih kosong
+  S.spt.step = 1; saveSpt();
+  S.view = 'spt'; renderShell(); scrollTo({ top: 0 });
+  toast('Nomor ' + a.nomorSuratFull + ' masuk ke SPT');
+}
+
+/* ---- Data guru ---- */
+async function loadGuru(silent) {
+  S.guruBusy = true; if (S.view === 'spt') renderSptForm();
+  try {
+    const r = await api('guru');
+    S.guru = r.guru || [];
+    try { localStorage.setItem(LS.guru, JSON.stringify(S.guru)); } catch {}
+    S.guruMsg = { ok: true, text: `${S.guru.length} guru dimuat dari Google Sheets` };
+    if (!silent) toast('Data guru diperbarui');
+  } catch (e) {
+    S.guruMsg = { ok: false, text: 'Gagal memuat data guru: ' + e.message };
+    if (!silent || !S.guru.length) toast(S.guruMsg.text, 'err');
+  } finally {
+    S.guruBusy = false;
+    if (S.view === 'spt') { renderSptForm(); updatePaper(); }
+  }
+}
+
+/* ---- Tampilan ---- */
+function renderSpt() {
+  $('#content').innerHTML = `
+  <div class="grid lg:grid-cols-[390px_minmax(0,1fr)] gap-6 items-start">
+    <div id="sptForm" class="card p-5 md:p-6 no-print"></div>
+    <div class="min-w-0">
+      <div class="no-print flex items-center justify-between mb-3 gap-3">
+        <p class="label !mb-0">Pratinjau surat</p>
+        <button class="btn btn-primary" onclick="cetakSpt()">${ic('printer', 18)} Cetak / PDF</button>
+      </div>
+      <div id="paperWrap" class="overflow-hidden rounded-2xl shadow-xl ring-1 ring-slate-200 dark:ring-slate-700 bg-white relative">
+        <div id="paperScaler" style="width:794px;transform-origin:top left">
+          <div id="printable-area" class="bg-white text-black" style="width:794px;min-height:1123px;padding:1.4cm;font-family:Arial,Helvetica,sans-serif;font-size:12pt;line-height:1.4"></div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  renderSptForm(); updatePaper();
+  requestAnimationFrame(fitPaper);
+  if (!S.guruFresh) { S.guruFresh = true; loadGuru(true); } // segarkan data guru sekali per sesi
+}
+
+const sptInput = (label, key, ph = '', type = 'text') =>
+  `<div><label class="label">${label}</label><input type="${type}" class="input" value="${esc(S.spt[key])}" placeholder="${esc(ph)}" oninput="sptSet('${key}',this.value)"></div>`;
+
+function renderSptForm() {
+  const f = $('#sptForm'); if (!f) return;
+  const t = S.spt, st = t.step;
+  const steps = [[1, 'Nomor'], [2, 'Peserta'], [3, 'Kegiatan']];
+  const stepper = `<div class="flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 rounded-2xl p-2 mb-5">${steps.map(([n, l], i) =>
+    `${i ? '<div class="h-0.5 w-4 bg-slate-200 dark:bg-slate-700"></div>' : ''}
+     <button onclick="sptStep(${n})" class="flex items-center gap-2 px-1.5 py-1">
+       <span class="w-7 h-7 rounded-full flex items-center justify-center text-xs font-extrabold transition ${n === st ? 'bg-violet-600 text-white shadow-md shadow-violet-500/30' : n < st ? 'bg-violet-100 dark:bg-violet-500/20 text-violet-600' : 'bg-slate-200 dark:bg-slate-700 text-slate-500'}">${n < st ? ic('check', 14) : n}</span>
+       <span class="text-xs font-bold ${n === st ? 'text-violet-600' : 'text-slate-400'}">${l}</span></button>`).join('')}</div>`;
+
+  let body = '';
+  if (st === 1) {
+    body = `<div class="space-y-4">
+      ${sptInput('Nomor surat', 'noSurat', 'Klik “Ambil Nomor” di Arsip Surat')}
+      ${sptInput('Tanggal surat', 'tanggal', '', 'date')}
+      <div class="rounded-2xl bg-violet-50/70 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 p-3.5 text-xs font-semibold text-violet-700 dark:text-violet-300 leading-relaxed">
+        ${ic('lightbulb', 14, 'inline')} Nomor terisi otomatis dari tombol <b>Ambil Nomor</b> di daftar Arsip Surat.
+        <button class="underline font-extrabold ml-1" onclick="setView('arsip')">Buka Arsip Surat</button></div></div>`;
+  } else if (st === 2) {
+    const opts = (sel) => `<option value="">— Pilih guru —</option>` + S.guru.map((g) => `<option value="${esc(g.nama)}" ${g.nama === sel ? 'selected' : ''}>${esc(g.nama)}</option>`).join('');
+    const rows = t.peserta.map((nm, i) => {
+      const g = S.guru.find((x) => x.nama === nm);
+      return `<div class="rounded-2xl border border-slate-200 dark:border-slate-700 p-3 space-y-2 bg-slate-50/60 dark:bg-slate-800/40">
+        <div class="flex gap-2"><select class="input !py-2.5" onchange="sptPeserta(${i},this.value)">${opts(nm)}</select>
+          ${t.peserta.length > 1 ? `<button class="btn btn-ghost !px-2.5 !text-rose-500" onclick="sptRemovePeserta(${i})" title="Hapus peserta">${ic('trash-2', 16)}</button>` : ''}</div>
+        ${g ? `<p class="text-[11px] font-semibold text-slate-400 px-1">NIP ${esc(g.nip || '-')} · ${esc(g.jabatan || '-')}</p>` : ''}</div>`;
+    }).join('');
+    body = `<div class="space-y-3">
+      <div class="flex items-center justify-between gap-2">
+        <p class="text-[11px] font-bold ${S.guruMsg && !S.guruMsg.ok ? 'text-rose-500' : 'text-slate-400'}">${S.guruBusy ? 'Memuat data guru…' : esc(S.guruMsg ? S.guruMsg.text : S.guru.length + ' guru tersimpan di perangkat ini')}</p>
+        <button class="btn btn-soft !py-2 !px-3 text-xs shrink-0" onclick="loadGuru(false)" ${S.guruBusy ? 'disabled' : ''}>${ic('refresh-cw', 14, S.guruBusy ? 'animate-spin' : '')} Perbarui</button></div>
+      <div class="space-y-2.5">${rows}</div>
+      <button class="btn btn-soft w-full" onclick="sptAddPeserta()">${ic('plus', 16)} Tambah peserta</button></div>`;
+  } else {
+    body = `<div class="space-y-4">
+      <div><label class="label">Nama kegiatan</label><textarea rows="3" class="input resize-none" placeholder="mis. Bimtek Digitalisasi Pembelajaran…" oninput="sptSet('kegiatan',this.value)">${esc(t.kegiatan)}</textarea></div>
+      <div class="rounded-2xl bg-violet-50/70 dark:bg-violet-500/10 border border-violet-100 dark:border-violet-500/20 p-3.5 space-y-3">
+        <label class="flex items-center gap-2.5 cursor-pointer text-xs font-extrabold text-violet-700 dark:text-violet-300"><input type="checkbox" class="w-4 h-4 accent-violet-600" ${t.dinas ? 'checked' : ''} onchange="sptSet('dinas',this.checked);renderSptForm()"> Berdasarkan surat dinas / atasan</label>
+        ${t.dinas ? `<div class="space-y-2.5">${sptInput('Pejabat pembuat', 'pejabat')}<div class="grid grid-cols-2 gap-2">${sptInput('Nomor surat', 'noDinas', '400.3/123/X/2026')}${sptInput('Tanggal surat', 'tglDinas', '25 Oktober 2026')}</div></div>` : ''}</div>
+      <div class="rounded-2xl bg-emerald-50/70 dark:bg-emerald-500/10 border border-emerald-100 dark:border-emerald-500/20 p-3.5">
+        <p class="text-xs font-extrabold text-emerald-700 dark:text-emerald-300 mb-2">Pengesahan dokumen</p>
+        <div class="grid grid-cols-2 gap-2 text-xs font-bold text-emerald-700 dark:text-emerald-300">
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" class="w-4 h-4 accent-emerald-600" ${t.ttd ? 'checked' : ''} onchange="sptSet('ttd',this.checked)"> Tanda tangan</label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" class="w-4 h-4 accent-emerald-600" ${t.stempel ? 'checked' : ''} onchange="sptSet('stempel',this.checked)"> Stempel</label></div></div>
+      ${sptInput('Hari / tanggal', 'hari', 'Kamis - Sabtu, 29 s/d 31 Oktober 2026')}
+      <div class="grid grid-cols-2 gap-3">${sptInput('Pukul', 'waktu')}${sptInput('Tempat', 'tempat', 'SD Amaliyah Kec. Sunggal')}</div></div>`;
+  }
+
+  f.innerHTML = `
+    <div class="flex items-center justify-between mb-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+      <div><h2 class="text-base font-extrabold">Form SPT Guru</h2><p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 mt-0.5">Pengaturan data penugasan</p></div>
+      <button class="btn btn-ghost !py-2 !px-3 text-xs !text-rose-500" onclick="sptReset()">${ic('rotate-ccw', 14)} Reset</button></div>
+    ${stepper}${body}
+    <div class="flex gap-2 pt-5 mt-5 border-t border-slate-100 dark:border-slate-800">
+      ${st > 1 ? `<button class="btn btn-soft" onclick="sptStep(${st - 1})">← Kembali</button>` : ''}
+      ${st < 3 ? `<button class="btn btn-primary flex-1" onclick="sptStep(${st + 1})">Lanjut →</button>` : `<button class="btn btn-ok flex-1" onclick="cetakSpt()">${ic('printer', 18)} Cetak / PDF</button>`}</div>`;
+  icons();
+}
+
+/* ---- Aksi form ---- */
+function sptSet(k, v) { S.spt[k] = v; saveSpt(); updatePaper(); }
+function sptStep(n) { S.spt.step = n; saveSpt(); renderSptForm(); }
+function sptPeserta(i, v) { S.spt.peserta[i] = v; saveSpt(); renderSptForm(); updatePaper(); }
+function sptAddPeserta() { S.spt.peserta.push(''); saveSpt(); renderSptForm(); }
+function sptRemovePeserta(i) {
+  S.spt.peserta.splice(i, 1); if (!S.spt.peserta.length) S.spt.peserta = [''];
+  saveSpt(); renderSptForm(); updatePaper();
+}
+function sptReset() {
+  if (!confirm('Kosongkan form SPT?')) return;
+  S.spt = sptDefault(); saveSpt(); renderSptForm(); updatePaper();
+}
+function cetakSpt() {
+  const old = document.title;
+  document.title = 'SPT ' + (S.spt.noSurat || 'Guru').replace(/\//g, '-');
+  window.print();
+  setTimeout(() => { document.title = old; }, 600);
+}
+
+/* ---- Kertas surat ---- */
+function updatePaper() {
+  const p = $('#printable-area'); if (!p) return;
+  p.innerHTML = paperHtml(); fitPaper();
+}
+function fitPaper() { // kecilkan kertas A4 agar muat di layar sempit (tidak berpengaruh saat cetak)
+  const w = $('#paperWrap'), sc = $('#paperScaler'); if (!w || !sc) return;
+  const k = Math.min(1, w.clientWidth / 794);
+  sc.style.transform = k < 1 ? `scale(${k})` : '';
+  sc.style.margin = k < 1 ? '0' : '0 auto';
+  w.style.height = Math.ceil(sc.offsetHeight * k) + 'px';
+}
+addEventListener('resize', fitPaper);
+
+function paperHtml() {
+  const t = S.spt;
+  const rows = t.peserta.map((nm, i) => {
+    const g = S.guru.find((x) => x.nama === nm);
+    return `<tr><td style="text-align:center">${i + 1}.</td><td style="font-weight:700">${esc(g ? g.nama : nm) || '...'}</td><td style="text-align:center">${esc(g && g.nip) || '-'}</td><td>${esc(g && g.jabatan) || '-'}</td></tr>`;
+  }).join('');
+  const dinas = t.dinas ? `, berdasarkan surat dari ${esc(t.pejabat) || '...'} Nomor: ${esc(t.noDinas) || '...'} Tanggal ${esc(t.tglDinas) || '...'}` : '';
+  return `
+  <div style="margin:0 -1.4cm 14px;width:calc(100% + 2.8cm)"><img src="kop%20surat.png" alt="Kop surat" onload="fitPaper()" style="display:block;width:784px;max-width:none;height:auto;margin:0 auto"></div>
+  <div style="text-align:center;margin:22px 0">
+    <div style="font-weight:700;text-decoration:underline;font-size:14pt;letter-spacing:.05em">SURAT PERINTAH TUGAS (SPT)</div>
+    <div style="margin-top:4px">Nomor : ${esc(t.noSurat) || '...'}</div></div>
+  <p>Yang bertanda tangan dibawah ini:</p>
+  <table class="kv" style="margin:6px 0 8px 16px">
+    <tr><td style="width:112px">Nama</td><td style="width:16px">:</td><td style="font-weight:700">${esc(KEPSEK.nama)}</td></tr>
+    <tr><td>NIP</td><td>:</td><td>${esc(KEPSEK.nip)}</td></tr>
+    <tr><td>Gol/Ruang</td><td>:</td><td>${esc(KEPSEK.gol)}</td></tr>
+    <tr><td>Jabatan</td><td>:</td><td>Kepala Sekolah</td></tr>
+    <tr><td>Unit Kerja</td><td>:</td><td>${esc(KEPSEK.unit)}</td></tr></table>
+  <p>menugaskan kepada:</p>
+  <table class="tb" style="margin:8px 0 14px"><thead><tr style="background:#f3f4f6;text-align:center"><th style="width:44px">No.</th><th>Nama</th><th>NIP</th><th>Jabatan</th></tr></thead><tbody>${rows}</tbody></table>
+  <p style="text-align:justify">Untuk mengikuti <b>${esc(t.kegiatan) || '...'}</b>${dinas}, yang dilaksanakan pada:</p>
+  <table class="kv" style="margin:6px 0 8px 16px">
+    <tr><td style="width:128px">Hari/Tanggal</td><td style="width:16px">:</td><td style="font-weight:700">${esc(t.hari) || '...'}</td></tr>
+    <tr><td>Pukul</td><td>:</td><td>${esc(t.waktu) || '...'}</td></tr>
+    <tr><td>Tempat</td><td>:</td><td>${esc(t.tempat) || '...'}</td></tr></table>
+  <p style="margin-top:8px;text-align:justify">Demikian surat perintah tugas ini diberikan untuk dapat dilaksanakan dengan penuh tanggung jawab.</p>
+  <div style="margin-top:18px;display:flex;justify-content:flex-end">
+    <div style="position:relative;width:288px;padding-left:16px;text-align:left">
+      <p style="margin:0">Sunggal, ${fmtLong(t.tanggal)}</p>
+      <p style="margin:0 0 8px">Kepala Sekolah</p>
+      ${t.stempel ? `<div style="position:absolute;top:4px;left:-1.6cm;width:3.8cm;height:3.8cm;pointer-events:none"><img src="stempel.png" alt="Stempel" style="width:100%;height:100%;object-fit:contain;opacity:.9"></div>` : ''}
+      ${t.ttd ? `<div style="position:absolute;left:24px;top:44px;pointer-events:none"><img src="ttd%20kepsek.png" alt="Tanda tangan" style="height:2.3cm;width:auto;mix-blend-mode:multiply"></div>` : ''}
+      <p style="position:relative;z-index:1;padding-top:64px;margin:0;font-weight:700;text-decoration:underline">${esc(KEPSEK.nama)}</p>
+      <p style="position:relative;z-index:1;margin:0;line-height:1.2">NIP. ${esc(KEPSEK.nip)}</p>
+    </div></div>`;
 }
 
 /* ============================== START ============================ */
