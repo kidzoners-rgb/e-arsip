@@ -4,6 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#7c3aed">
+<link rel="icon" href="favicon.ico">
+<link rel="shortcut icon" href="favicon.ico">
+<link rel="apple-touch-icon" href="logo.png">
 <title>E-Arsip SDN 101731</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
@@ -158,9 +161,9 @@ function renderLogin() {
   $('#app').innerHTML = `
   <div class="min-h-screen flex items-center justify-center p-5 bg-gradient-to-br from-violet-100 via-fuchsia-50 to-sky-100 dark:from-slate-950 dark:via-violet-950/40 dark:to-slate-950">
     <div class="card pop w-full max-w-md p-8 md:p-10">
-      <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-xl shadow-violet-500/30 mb-6">${ic('database', 26)}</div>
-      <h1 class="text-2xl font-extrabold tracking-tight">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
-      <p class="text-sm text-slate-500 mt-1 mb-7">Masukkan PIN admin untuk melanjutkan.</p>
+      <img src="logo.png" alt="Logo SDN 101731" class="w-24 h-24 object-contain mx-auto mb-5 drop-shadow-md select-none" draggable="false">
+      <h1 class="text-2xl font-extrabold tracking-tight text-center">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>
+      <p class="text-sm text-slate-500 mt-1 mb-7 text-center">Masukkan PIN admin untuk melanjutkan.</p>
       ${S.url ? '' : `<div class="mb-4 p-3 rounded-2xl bg-amber-50 text-amber-700 text-xs font-bold">URL Web App belum diisi di index.html (DEFAULT_API_URL).</div>`}
       <form id="loginForm" class="space-y-4">
         <div><label class="label">PIN</label>
@@ -203,7 +206,7 @@ function renderShell() {
   <header class="sticky top-0 z-40 bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl border-b border-slate-200/70 dark:border-slate-800">
     <div class="max-w-6xl mx-auto px-4 md:px-6 py-3 flex items-center justify-between gap-3">
       <div class="flex items-center gap-3 min-w-0">
-        <div class="w-10 h-10 shrink-0 rounded-2xl bg-gradient-to-br from-violet-600 to-fuchsia-500 text-white flex items-center justify-center shadow-lg shadow-violet-500/30">${ic('database', 20)}</div>
+        <img src="logo.png" alt="Logo SDN 101731" class="w-11 h-11 shrink-0 object-contain drop-shadow-sm select-none" draggable="false">
         <div class="min-w-0">
           <h1 class="text-base font-extrabold leading-none truncate">E-Arsip <span class="text-violet-500">SDN 101731</span></h1>        </div>
       </div>
