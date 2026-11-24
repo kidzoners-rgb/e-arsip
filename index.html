@@ -55,6 +55,8 @@
     tr { page-break-inside: avoid; }
   }
   .drag-over { outline: 2px dashed #8b5cf6; outline-offset: 2px; }
+  .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
   ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-thumb { background: rgba(148,163,184,.4); border-radius: 8px; }
 </style>
 </head>
@@ -410,9 +412,8 @@ function kpCurrent(id) {
   if (!k) return '<span class="text-slate-400">Pilih klasifikasi…</span>';
   const p = k.isParent ? null : parentOf(id);
   return `<span class="block min-w-0">
-    <span class="flex items-center gap-2"><span class="badge font-mono">${esc(k.id)}</span>${k.isParent ? '<span class="text-[10px] font-extrabold uppercase tracking-widest text-violet-400">Induk</span>' : ''}</span>
-    <span class="block text-[13px] font-bold mt-1 leading-snug whitespace-normal">${esc(k.label)}</span>
-    ${p ? `<span class="block text-[11px] font-semibold text-slate-400 mt-0.5 whitespace-normal">${ic('folder', 11, 'inline')} ${esc(p.id)} · ${esc(p.label)}</span>` : ''}</span>`;
+    <span class="flex items-center gap-2 min-w-0"><span class="badge font-mono shrink-0">${esc(k.id)}</span><span class="text-[13px] font-bold truncate">${esc(k.label)}</span>${k.isParent ? '<span class="shrink-0 text-[10px] font-extrabold uppercase tracking-widest text-violet-400">Induk</span>' : ''}</span>
+    ${p ? `<span class="block text-[11px] font-semibold text-slate-400 mt-0.5 truncate">${ic('folder', 11, 'inline')} ${esc(p.id)} · ${esc(p.label)}</span>` : ''}</span>`;
 }
 
 function kpRows(q, sel) {
@@ -475,18 +476,18 @@ function openForm(id) {
     S.form.nomorUrut = nextNo(jenis, S.form.tanggal); S.manualNo = false;
   }
   const f = S.form;
-  showModal(`<form id="frm" class="pop bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-[2rem] md:rounded-[2rem] shadow-2xl max-h-[94vh] overflow-y-auto relative">
-    <div class="p-6 md:p-8 space-y-5">
+  showModal(`<form id="frm" class="pop bg-white dark:bg-slate-900 w-full max-w-xl rounded-t-[2rem] md:rounded-[2rem] shadow-2xl max-h-[96vh] overflow-y-auto no-scrollbar relative">
+    <div class="p-5 md:p-6 space-y-3.5">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-3">
-          <div class="w-11 h-11 rounded-2xl bg-violet-100 dark:bg-violet-500/15 text-violet-600 flex items-center justify-center">${ic(f.id ? 'pencil' : 'file-plus-2', 22)}</div>
+          <div class="w-10 h-10 rounded-2xl bg-violet-100 dark:bg-violet-500/15 text-violet-600 flex items-center justify-center">${ic(f.id ? 'pencil' : 'file-plus-2', 22)}</div>
           <div><h2 class="text-lg font-extrabold">${f.id ? 'Edit Arsip' : 'Nomor Surat Baru'}</h2><p class="text-[11px] font-bold text-slate-400 uppercase tracking-widest">Detail klasifikasi & surat</p></div>
         </div>
         <button type="button" class="btn btn-ghost !p-2" onclick="closeModal()">${ic('x', 22)}</button>
       </div>
       <div><label class="label">Klasifikasi</label>
         <input type="hidden" id="fmJenis" value="${esc(f.jenis)}">
-        <button type="button" id="kpBtn" class="input flex items-center justify-between gap-3 text-left cursor-pointer"><span id="kpCur" class="min-w-0 flex-1">${kpCurrent(f.jenis)}</span><span id="kpChev" class="shrink-0 text-slate-400 transition">${ic('chevron-down', 18)}</span></button>
+        <button type="button" id="kpBtn" class="input !py-2.5 flex items-center justify-between gap-3 text-left cursor-pointer"><span id="kpCur" class="min-w-0 flex-1">${kpCurrent(f.jenis)}</span><span id="kpChev" class="shrink-0 text-slate-400 transition">${ic('chevron-down', 18)}</span></button>
         <div id="kpPanel" class="hidden mt-2 rounded-3xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl overflow-hidden">
           <div class="p-2.5 border-b border-slate-100 dark:border-slate-800 relative">
             <span class="absolute left-5 top-1/2 -translate-y-1/2 text-slate-400">${ic('search', 16)}</span>
@@ -494,21 +495,21 @@ function openForm(id) {
           </div>
           <div id="kpList" class="relative max-h-72 overflow-y-auto p-2.5"></div>
         </div></div>
-      <div class="grid grid-cols-2 gap-4">
-        <div><label class="label">Tanggal</label><input id="fmTgl" type="date" class="input" value="${f.tanggal}" required></div>
+      <div class="grid grid-cols-2 gap-3">
+        <div><label class="label">Tanggal</label><input id="fmTgl" type="date" class="input !py-2.5" value="${f.tanggal}" required></div>
         <div><label class="label flex justify-between">No. Urut <button type="button" id="fmAuto" class="text-violet-500 normal-case tracking-normal font-bold ${S.manualNo ? '' : 'hidden'}">↻ otomatis</button></label>
-          <input id="fmNo" inputmode="numeric" class="input font-mono text-violet-600 dark:text-violet-300" value="${esc(f.nomorUrut)}" required></div>
+          <input id="fmNo" inputmode="numeric" class="input !py-2.5 font-mono text-violet-600 dark:text-violet-300" value="${esc(f.nomorUrut)}" required></div>
       </div>
-      <div><label class="label">Perihal Surat</label><textarea id="fmKet" rows="3" class="input resize-none" placeholder="Deskripsikan perihal surat…" autofocus>${esc(f.keterangan)}</textarea></div>
-      <div class="rounded-3xl bg-slate-900 text-white p-5 md:p-6 relative overflow-hidden">
+      <div><label class="label">Perihal Surat</label><textarea id="fmKet" rows="2" class="input !py-2.5 resize-none" placeholder="Deskripsikan perihal surat…" autofocus>${esc(f.keterangan)}</textarea></div>
+      <div class="rounded-2xl bg-slate-900 text-white px-4 py-3 relative overflow-hidden">
         <div class="absolute -right-6 -top-6 w-28 h-28 rounded-full bg-violet-500/25 blur-2xl"></div>
-        <p class="text-[10px] font-extrabold tracking-[.3em] text-violet-300 uppercase mb-2">Pratinjau nomor</p>
-        <p id="fmPrev" class="font-mono text-lg md:text-2xl font-bold break-all"></p>
-        <p id="fmWarn" class="text-xs font-bold text-amber-300 mt-2 hidden">${ic('triangle-alert', 14, 'inline')} Nomor ini sudah dipakai</p>
+        <p class="text-[10px] font-extrabold tracking-[.3em] text-violet-300 uppercase mb-0.5">Pratinjau nomor</p>
+        <p id="fmPrev" class="font-mono text-lg md:text-xl font-bold break-all"></p>
+        <p id="fmWarn" class="text-xs font-bold text-amber-300 mt-1 hidden">${ic('triangle-alert', 14, 'inline')} Nomor ini sudah dipakai</p>
       </div>
-      <div class="flex flex-col-reverse md:flex-row gap-3 pt-1">
-        <button type="button" class="btn btn-soft md:flex-1 py-4" onclick="closeModal()">Batal</button>
-        <button id="fmSave" class="btn btn-primary md:flex-[2] py-4">${ic('check', 18)} Simpan Arsip</button>
+      <div class="flex flex-col-reverse md:flex-row gap-2.5">
+        <button type="button" class="btn btn-soft md:flex-1 py-3" onclick="closeModal()">Batal</button>
+        <button id="fmSave" class="btn btn-primary md:flex-[2] py-3">${ic('check', 18)} Simpan Arsip</button>
       </div>
     </div></form>`);
   const sync = () => {
